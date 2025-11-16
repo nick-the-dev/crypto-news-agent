@@ -4,10 +4,6 @@ export interface StructuredAnswer {
     content: string;
     citations: number[];
   };
-  context: {
-    content: string;
-    citations: number[];
-  };
   confidence: number;
   metadata?: {
     queryTimestamp: string;
@@ -27,7 +23,7 @@ export interface ArticleSource {
   relevance: number;
 }
 
-export type SSEEventType = 'metadata' | 'sources' | 'status' | 'token' | 'structured' | 'done' | 'error';
+export type SSEEventType = 'metadata' | 'sources' | 'status' | 'tldr' | 'details' | 'token' | 'structured' | 'done' | 'error';
 
 export interface SSEEvent {
   type: SSEEventType;

@@ -4,7 +4,8 @@ import { StructuredAnswer, ArticleSource, SSEEvent, SSEEventType } from '../type
 interface StreamingState {
   isStreaming: boolean;
   status: string;
-  tokens: string[];
+  streamingTldr: string;
+  streamingDetails: string;
   sources: ArticleSource[];
   answer: StructuredAnswer | null;
   error: string | null;
@@ -14,7 +15,8 @@ export function useStreamingAnswer() {
   const [state, setState] = useState<StreamingState>({
     isStreaming: false,
     status: '',
-    tokens: [],
+    streamingTldr: '',
+    streamingDetails: '',
     sources: [],
     answer: null,
     error: null
@@ -24,7 +26,8 @@ export function useStreamingAnswer() {
     setState({
       isStreaming: true,
       status: 'Preparing...',
-      tokens: [],
+      streamingTldr: '',
+      streamingDetails: '',
       sources: [],
       answer: null,
       error: null
@@ -90,8 +93,11 @@ export function useStreamingAnswer() {
         case 'status':
           return { ...prev, status: event.data.message };
 
-        case 'token':
-          return { ...prev, tokens: [...prev.tokens, event.data.token] };
+        case 'tldr':
+          return { ...prev, streamingTldr: event.data.content };
+
+        case 'details':
+          return { ...prev, streamingDetails: event.data.content };
 
         case 'structured':
           return {

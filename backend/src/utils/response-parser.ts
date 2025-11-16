@@ -4,10 +4,6 @@ export interface ParsedResponse {
     content: string;
     citations: number[];
   };
-  context: {
-    content: string;
-    citations: number[];
-  };
   confidence: number;
 }
 
@@ -47,7 +43,6 @@ function extractConfidence(text: string): number {
 export function parseStructuredResponse(rawResponse: string): ParsedResponse {
   const tldr = extractSection(rawResponse, 'TL;?DR');
   const detailsContent = extractSection(rawResponse, 'Details');
-  const contextContent = extractSection(rawResponse, 'Context');
   const confidence = extractConfidence(rawResponse);
 
   return {
@@ -55,10 +50,6 @@ export function parseStructuredResponse(rawResponse: string): ParsedResponse {
     details: {
       content: detailsContent || 'No details available',
       citations: extractCitations(detailsContent)
-    },
-    context: {
-      content: contextContent || 'No context available',
-      citations: extractCitations(contextContent)
     },
     confidence
   };
@@ -69,10 +60,7 @@ export function validateCitations(
   sourceCount: number
 ): ValidationResult {
   const issues: string[] = [];
-  const allCitations = [
-    ...parsed.details.citations,
-    ...parsed.context.citations
-  ];
+  const allCitations = parsed.details.citations;
 
   for (const citation of allCitations) {
     if (citation < 1 || citation > sourceCount) {

@@ -67,11 +67,7 @@ export async function handleAsk(req: Request, res: Response): Promise<void> {
       res.write(`data: ${JSON.stringify({
         tldr: "No relevant recent crypto news found on this topic.",
         details: {
-          content: "I don't have recent information about this in my news database. Try rephrasing your question or asking about a different crypto topic.",
-          citations: []
-        },
-        context: {
-          content: "This could mean the topic is very new, niche, or not covered by the sources I monitor (DL News, The Defiant, Cointelegraph).",
+          content: "I don't have recent information about this in my news database. This could mean the topic is very new, niche, or not covered by the sources I monitor (DL News, The Defiant). Try rephrasing your question or asking about a different crypto topic.",
           citations: []
         },
         confidence: 10
@@ -102,13 +98,48 @@ export async function handleAsk(req: Request, res: Response): Promise<void> {
     res.write(`data: ${JSON.stringify({ message: "Generating answer..." })}\n\n`);
 
     let fullResponse = '';
+    let currentSection: 'none' | 'tldr' | 'details' | 'confidence' = 'none';
+    let sectionContent = '';
 
     for await (const token of agent.streamAnswer(systemPrompt, userPrompt)) {
       if (streamAborted) break;
 
       fullResponse += token;
-      res.write(`event: token\n`);
-      res.write(`data: ${JSON.stringify({ token })}\n\n`);
+
+      const lowerToken = token.toLowerCase();
+      if (lowerToken.includes('## tl;dr') || lowerToken.includes('##tl;dr')) {
+        if (currentSection === 'tldr' && sectionContent) {
+          res.write(`event: tldr\n`);
+          res.write(`data: ${JSON.stringify({ content: sectionContent.trim() })}\n\n`);
+        }
+        currentSection = 'tldr';
+        sectionContent = '';
+      } else if (lowerToken.includes('## details')) {
+        if (currentSection === 'tldr' && sectionContent) {
+          res.write(`event: tldr\n`);
+          res.write(`data: ${JSON.stringify({ content: sectionContent.trim() })}\n\n`);
+        }
+        currentSection = 'details';
+        sectionContent = '';
+      } else if (lowerToken.includes('## confidence')) {
+        if (currentSection === 'details' && sectionContent) {
+          res.write(`event: details\n`);
+          res.write(`data: ${JSON.stringify({ content: sectionContent.trim() })}\n\n`);
+        }
+        currentSection = 'confidence';
+        sectionContent = '';
+      } else {
+        if (currentSection === 'tldr' || currentSection === 'details') {
+          sectionContent += token;
+          if (currentSection === 'tldr') {
+            res.write(`event: tldr\n`);
+            res.write(`data: ${JSON.stringify({ content: sectionContent.trim() })}\n\n`);
+          } else if (currentSection === 'details') {
+            res.write(`event: details\n`);
+            res.write(`data: ${JSON.stringify({ content: sectionContent.trim() })}\n\n`);
+          }
+        }
+      }
     }
 
     const parsed = parseStructuredResponse(fullResponse);
@@ -122,7 +153,6 @@ export async function handleAsk(req: Request, res: Response): Promise<void> {
     res.write(`data: ${JSON.stringify({
       tldr: parsed.tldr,
       details: parsed.details,
-      context: parsed.context,
       confidence: parsed.confidence
     })}\n\n`);
 

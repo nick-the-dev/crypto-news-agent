@@ -4,7 +4,7 @@ import { LoadingIndicator } from './components/LoadingIndicator';
 import { StructuredAnswer } from './components/StructuredAnswer';
 
 function App() {
-  const { isStreaming, status, tokens, answer, error, askQuestion } = useStreamingAnswer();
+  const { isStreaming, status, streamingTldr, streamingDetails, answer, error, askQuestion } = useStreamingAnswer();
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
@@ -34,7 +34,7 @@ function App() {
         )}
 
         {isStreaming && answer && (
-          <StructuredAnswer answer={answer} streamingTokens={tokens} />
+          <StructuredAnswer answer={answer} streamingTldr={streamingTldr} streamingDetails={streamingDetails} />
         )}
 
         {!isStreaming && answer && (
@@ -42,7 +42,7 @@ function App() {
         )}
 
         <footer className="text-center mt-16 text-gray-600 text-sm">
-          Powered by OpenRouter • Sources: DL News, The Defiant, Cointelegraph
+          Powered by OpenRouter • Sources: DL News, The Defiant
         </footer>
       </div>
     </div>

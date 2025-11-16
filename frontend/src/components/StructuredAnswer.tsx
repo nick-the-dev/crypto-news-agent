@@ -5,11 +5,11 @@ import { SourceCard } from './SourceCard';
 
 interface Props {
   answer: StructuredAnswerType;
-  streamingTokens?: string[];
+  streamingTldr?: string;
+  streamingDetails?: string;
 }
 
-export function StructuredAnswer({ answer, streamingTokens }: Props) {
-  const [contextExpanded, setContextExpanded] = useState(false);
+export function StructuredAnswer({ answer, streamingTldr, streamingDetails }: Props) {
 
   const handleCitationClick = (num: number) => {
     const element = document.getElementById(`source-${num}`);
@@ -40,8 +40,6 @@ export function StructuredAnswer({ answer, streamingTokens }: Props) {
     });
   };
 
-  const streamingContent = streamingTokens?.join('') || '';
-
   return (
     <div className="w-full max-w-4xl mx-auto space-y-6">
       <div className="bg-blue-50 border-l-4 border-blue-600 p-4 rounded-r-lg">
@@ -49,7 +47,10 @@ export function StructuredAnswer({ answer, streamingTokens }: Props) {
           <span className="text-2xl">⚡</span>
           <h2 className="text-lg font-bold text-gray-900">TL;DR</h2>
         </div>
-        <p className="text-gray-800 text-lg">{answer.tldr}</p>
+        <p className="text-gray-800 text-lg">
+          {streamingTldr || answer.tldr}
+          {streamingTldr && <span className="inline-block w-2 h-5 bg-blue-600 animate-pulse ml-1"></span>}
+        </p>
       </div>
 
       <div className="bg-white border border-gray-200 rounded-lg p-6">
@@ -61,27 +62,15 @@ export function StructuredAnswer({ answer, streamingTokens }: Props) {
           <ConfidenceBadge score={answer.confidence} />
         </div>
         <div className="text-gray-700 leading-relaxed whitespace-pre-wrap">
-          {renderWithCitations(answer.details.content)}
-          {streamingContent && <span className="inline-block w-2 h-5 bg-blue-600 animate-pulse ml-1"></span>}
+          {streamingDetails ? (
+            <>
+              {renderWithCitations(streamingDetails)}
+              <span className="inline-block w-2 h-5 bg-blue-600 animate-pulse ml-1"></span>
+            </>
+          ) : (
+            renderWithCitations(answer.details.content)
+          )}
         </div>
-      </div>
-
-      <div className="bg-white border border-gray-200 rounded-lg p-6">
-        <button
-          onClick={() => setContextExpanded(!contextExpanded)}
-          className="flex items-center justify-between w-full text-left"
-        >
-          <div className="flex items-center gap-2">
-            <span className="text-2xl">📖</span>
-            <h2 className="text-xl font-bold text-gray-900">Context</h2>
-          </div>
-          <span className="text-gray-500">{contextExpanded ? '▼' : '▶'}</span>
-        </button>
-        {contextExpanded && (
-          <div className="mt-4 text-gray-700 leading-relaxed whitespace-pre-wrap">
-            {renderWithCitations(answer.context.content)}
-          </div>
-        )}
       </div>
 
       <div>

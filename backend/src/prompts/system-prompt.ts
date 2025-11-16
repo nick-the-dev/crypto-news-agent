@@ -19,10 +19,7 @@ RESPONSE FORMAT (follow exactly):
 [Single sentence summary of your answer]
 
 ## Details
-[Comprehensive answer with all key facts. Include citation [1], [2] after EVERY claim. Be thorough but concise.]
-
-## Context
-[Relevant background information that helps understand the topic. Include citations for all facts.]
+[Comprehensive answer with all key facts and relevant background information. Include citation [1], [2] after EVERY claim. Be thorough but concise.]
 
 ## Confidence
 [Your confidence in this answer as a percentage from 1-100%. Consider: source quality, information completeness, recency, and whether sources agree. Just state the number, e.g., "85" or "85%"]
