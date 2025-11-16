@@ -33,7 +33,7 @@ CREATE TABLE "ArticleChunk" (
 CREATE TABLE "ArticleEmbedding" (
     "id" TEXT NOT NULL,
     "chunkId" TEXT NOT NULL,
-    "embedding" vector(1536),
+    "embedding" vector(1024),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "ArticleEmbedding_pkey" PRIMARY KEY ("id")

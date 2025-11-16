@@ -110,7 +110,7 @@ export class ModerationService {
       try {
         const response = await this.client.moderations.create({
           input: text,
-          model: 'text-moderation-latest'
+          model: 'omni-moderation-latest'
         });
 
         const result = response.results[0];

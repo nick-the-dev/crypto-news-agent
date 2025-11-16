@@ -1,10 +1,10 @@
 # Crypto News Agent
 
-AI-powered crypto news agent that provides real-time answers based on the latest news from DL News, The Defiant, and Cointelegraph.
+AI-powered crypto news agent that provides real-time answers based on the latest news from DL News and The Defiant.
 
 ## Features
 
-- **Real-time News Ingestion**: Automatically fetches and processes articles from 3 major crypto news sources
+- **Real-time News Ingestion**: Automatically fetches and processes articles from 2 major crypto news sources
 - **Semantic Search**: Uses pgvector for efficient similarity search with embeddings
 - **Anti-Hallucination**: Strict citation requirements and confidence scoring
 - **Streaming Responses**: Real-time token-by-token answers via Server-Sent Events
@@ -36,7 +36,21 @@ AI-powered crypto news agent that provides real-time answers based on the latest
 
 ## Quick Start
 
-### 1. Clone and Install
+### Option 1: Run Everything with One Command (Recommended)
+
+```bash
+# Install all dependencies
+npm run install:all
+
+# Start both backend and frontend
+npm run dev
+```
+
+This will start both the backend (port 3001) and frontend (port 5173) simultaneously.
+
+### Option 2: Manual Setup
+
+#### 1. Clone and Install
 
 ```bash
 # Backend
@@ -48,7 +62,7 @@ cd ../frontend
 npm install
 ```
 
-### 2. Configure Environment Variables
+#### 2. Configure Environment Variables
 
 The `.env` files are already set up with your API keys. Verify they're correct:
 
@@ -67,7 +81,7 @@ FRONTEND_URL=http://localhost:5173
 VITE_API_URL=http://localhost:3001
 ```
 
-### 3. Start the Database
+#### 3. Start the Database
 
 The PostgreSQL database with pgvector is already running on port 5433:
 
@@ -80,7 +94,7 @@ If it's not running:
 docker-compose up -d postgres
 ```
 
-### 4. Run Backend
+#### 4. Run Backend
 
 ```bash
 cd backend
@@ -89,7 +103,7 @@ npm run dev
 
 The backend will start on `http://localhost:3001`
 
-### 5. Run Frontend
+#### 5. Run Frontend
 
 In a new terminal:
 
@@ -100,7 +114,7 @@ npm run dev
 
 The frontend will start on `http://localhost:5173`
 
-### 6. Use the Application
+#### 6. Use the Application
 
 1. Open `http://localhost:5173` in your browser
 2. Ask a question about crypto news (e.g., "What's happening with Bitcoin?")
@@ -171,7 +185,7 @@ Display with clickable citations
 ```sql
 Article (id, url, title, content, summary, source, author, publishedAt)
   ├── ArticleChunk (id, articleId, chunkIndex, content, isIntro, isSummary)
-      └── ArticleEmbedding (id, chunkId, embedding vector(1536))
+      └── ArticleEmbedding (id, chunkId, embedding vector(1024))
 
 QueryLog (id, question, articlesRetrieved, confidence, processingTimeMs)
 ```
@@ -249,8 +263,7 @@ See `docker-compose.yml` for full configuration.
 ## RSS Sources
 
 1. **DL News**: https://www.dlnews.com/arc/outboundfeeds/rss/
-2. **Cointelegraph**: https://cointelegraph.com/rss
-3. **The Defiant**: https://thedefiant.io/api/feed
+2. **The Defiant**: https://thedefiant.io/api/feed
 
 Articles are fetched on every query to ensure fresh data.
 
