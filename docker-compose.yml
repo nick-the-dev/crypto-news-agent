@@ -13,7 +13,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-crypto_agent}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-crypto_agent} -d ${DB_NAME:-crypto_news}"]
       interval: 10s
       timeout: 5s
       retries: 5
