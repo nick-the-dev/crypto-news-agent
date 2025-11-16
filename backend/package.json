@@ -1,0 +1,40 @@
+{
+  "name": "crypto-news-agent-backend",
+  "version": "1.0.0",
+  "description": "Backend for crypto news AI agent",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "nodemon --exec ts-node src/server.ts",
+    "build": "tsc && npx prisma generate",
+    "start": "node dist/server.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:ui": "vitest --ui",
+    "prisma:migrate": "npx prisma migrate dev",
+    "prisma:generate": "npx prisma generate"
+  },
+  "keywords": ["crypto", "news", "ai", "agent"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "prisma": "^5.9.1",
+    "@prisma/client": "^5.9.1",
+    "openai": "^4.26.0",
+    "rss-parser": "^3.13.0",
+    "express-rate-limit": "^7.1.5",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3",
+    "@types/node": "^20.11.5",
+    "@types/express": "^4.17.21",
+    "@types/cors": "^2.8.17",
+    "ts-node": "^10.9.2",
+    "nodemon": "^3.0.3",
+    "vitest": "^1.2.1",
+    "@vitest/ui": "^1.2.1"
+  }
+}

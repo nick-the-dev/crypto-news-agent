@@ -1,0 +1,56 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Article {
+  id          String         @id @default(uuid())
+  url         String         @unique
+  title       String
+  content     String         @db.Text
+  summary     String?        @db.Text
+  source      String
+  author      String?
+  publishedAt DateTime
+  createdAt   DateTime       @default(now())
+  chunks      ArticleChunk[]
+
+  @@index([publishedAt])
+  @@index([source])
+}
+
+model ArticleChunk {
+  id         String             @id @default(uuid())
+  articleId  String
+  article    Article            @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  chunkIndex Int
+  content    String             @db.Text
+  isIntro    Boolean            @default(false)
+  isSummary  Boolean            @default(false)
+  createdAt  DateTime           @default(now())
+  embedding  ArticleEmbedding?
+
+  @@unique([articleId, chunkIndex])
+  @@index([articleId])
+}
+
+model ArticleEmbedding {
+  id        String       @id @default(uuid())
+  chunkId   String       @unique
+  chunk     ArticleChunk @relation(fields: [chunkId], references: [id], onDelete: Cascade)
+  embedding Unsupported("vector(1536)")
+  createdAt DateTime     @default(now())
+}
+
+model QueryLog {
+  id                 String   @id @default(uuid())
+  question           String   @db.Text
+  articlesRetrieved  Int
+  confidence         Int
+  processingTimeMs   Int
+  createdAt          DateTime @default(now())
+}
