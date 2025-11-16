@@ -13,6 +13,9 @@ export async function retrieveRelevantArticles(
   const dateFilter = new Date();
   dateFilter.setDate(dateFilter.getDate() - daysBack);
 
+  console.log(`[Search] Query: "${query}"`);
+  console.log(`[Search] Days back: ${daysBack}, Date filter: ${dateFilter.toISOString()}`);
+
   const results = await prisma.$queryRaw<RawSearchResult[]>`
     SELECT
       c.id as "chunkId",
@@ -32,10 +35,18 @@ export async function retrieveRelevantArticles(
     JOIN "Article" a ON c."articleId" = a.id
     WHERE
       a."publishedAt" >= ${dateFilter}
-      AND (1 - (e.embedding <=> ${JSON.stringify(embeddingVector)}::vector)) >= 0.75
+      AND (1 - (e.embedding <=> ${JSON.stringify(embeddingVector)}::vector)) >= 0.5
     ORDER BY similarity DESC
     LIMIT 20
   `;
+
+  console.log(`[Search] Found ${results.length} results with similarity >= 0.5`);
+  if (results.length > 0) {
+    console.log(`[Search] Top 5 similarity scores:`, results.slice(0, 5).map(r => ({
+      title: r.title.substring(0, 50),
+      similarity: r.similarity.toFixed(3)
+    })));
+  }
 
   if (results.length === 0) {
     return [];
