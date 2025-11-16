@@ -1,0 +1,45 @@
+import cors from 'cors';
+import rateLimit from 'express-rate-limit';
+import { Request, Response, NextFunction } from 'express';
+
+export const corsMiddleware = cors({
+  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  credentials: true
+});
+
+export const rateLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  message: { error: 'Too many requests, please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+export function errorHandler(
+  err: Error & { status?: number },
+  _req: Request,
+  res: Response,
+  _next: NextFunction
+): void {
+  console.error('Error:', err);
+
+  res.status(err.status || 500).json({
+    error: 'Internal server error',
+    message: process.env.NODE_ENV === 'development' ? err.message : undefined
+  });
+}
+
+export function requestLogger(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): void {
+  const start = Date.now();
+
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    console.log(`${req.method} ${req.path} - ${res.statusCode} - ${duration}ms`);
+  });
+
+  next();
+}
