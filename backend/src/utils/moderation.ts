@@ -7,9 +7,93 @@ interface ModerationResult {
 }
 
 const OFFENSIVE_KEYWORDS = [
-  'offensive',
+  // Violence & Harm
+  'kill',
+  'murder',
+  'suicide',
+  'self-harm',
+  'torture',
+  'abuse',
+  'assault',
+  'weapon',
+  'bomb',
+  'terrorist',
+  
+  // Explicit/Sexual
+  'porn',
+  'sex',
+  'nude',
+  'naked',
   'explicit',
-  'violence'
+  'nsfw',
+  
+  // Hate Speech
+  'racist',
+  'nazi',
+  'supremacist',
+  'slur',
+  'hate',
+  
+  // Drugs
+  'cocaine',
+  'heroin',
+  'meth',
+  'drug dealer',
+  
+  // Harassment
+  'doxx',
+  'swat',
+  'harass',
+  'stalk',
+  'threat',
+  
+  // Spam/Scam
+  'scam',
+  'phishing',
+  'fraud',
+  'spam',
+  
+  // Crypto Scams & Fraud
+  'rug pull',
+  'pump and dump',
+  'ponzi',
+  'pyramid scheme',
+  'exit scam',
+  'fake airdrop',
+  'honeypot',
+  'doubling coins',
+  'send me crypto',
+  'guaranteed returns',
+  '10x guaranteed',
+  'risk-free profit',
+  
+  // Illegal Crypto Activities
+  'money laundering',
+  'wash trading',
+  'darknet market',
+  'mixer',
+  'tumbler',
+  'stolen funds',
+  'hacked wallet',
+  'private keys for sale',
+  'seed phrase',
+  'ransomware',
+  'blackmail',
+  
+  // Market Manipulation
+  'coordinated dump',
+  'shill campaign',
+  'fake volume',
+  'insider trading',
+  'front running',
+  
+  // Phishing/Theft
+  'verify your wallet',
+  'claim your tokens',
+  'validate wallet',
+  'urgent: wallet security',
+  'customer support dm',
+  'recovery phrase needed'
 ];
 
 export class ModerationService {
