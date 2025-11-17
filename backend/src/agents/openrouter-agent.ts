@@ -148,8 +148,7 @@ Return ONLY the JSON array, ensuring it's complete and valid:`;
         model: LLM_MODEL,
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.2,
-        max_tokens: 4000 * articles.length, // Large buffer to ensure complete JSON responses
-        response_format: { type: 'json_object' } // Force valid JSON output
+        max_tokens: 4000 * articles.length // Large buffer to ensure complete JSON responses
       });
 
       const content = response.choices[0].message.content?.trim();
