@@ -1,10 +1,10 @@
 # Crypto News Agent
 
-AI-powered crypto news agent that provides real-time answers based on the latest news from DL News and The Defiant.
+AI-powered crypto news agent that provides real-time answers based on the latest news from DL News, The Defiant, and Cointelegraph.
 
 ## Features
 
-- **Real-time News Ingestion**: Automatically fetches and processes articles from 2 major crypto news sources
+- **Real-time News Ingestion**: Automatically fetches and processes articles from 3 major crypto news sources
 - **Semantic Search**: Uses pgvector for efficient similarity search with embeddings
 - **Anti-Hallucination**: Strict citation requirements and confidence scoring
 - **Streaming Responses**: Real-time token-by-token answers via Server-Sent Events
@@ -36,85 +36,42 @@ AI-powered crypto news agent that provides real-time answers based on the latest
 
 ## Quick Start
 
-### Option 1: Run Everything with One Command (Recommended)
+### Quick Start (One Command)
 
 ```bash
-# Install all dependencies
-npm run install:all
-
-# Start both backend and frontend
-npm run dev
+npm run install:all  # Install all dependencies
+npm run dev          # Start backend (port 3001) and frontend (port 5173)
 ```
 
-This will start both the backend (port 3001) and frontend (port 5173) simultaneously.
-
-### Option 2: Manual Setup
-
-#### 1. Clone and Install
+### Manual Setup
 
 ```bash
 # Backend
-cd backend
-npm install
+cd backend && npm install && npm run dev
 
-# Frontend
-cd ../frontend
-npm install
+# Frontend (new terminal)
+cd frontend && npm install && npm run dev
 ```
 
-#### 2. Configure Environment Variables
+**Environment Variables:**
 
-The `.env` files are already set up with your API keys. Verify they're correct:
-
-**backend/.env:**
+`backend/.env`:
 ```bash
 DATABASE_URL=postgresql://crypto_agent:dev_password_123@localhost:5433/crypto_news
 OPENROUTER_API_KEY=sk-or-v1-...
 OPENAI_API_KEY=sk-...
 PORT=3001
-NODE_ENV=development
 FRONTEND_URL=http://localhost:5173
 ```
 
-**frontend/.env:**
+`frontend/.env`:
 ```bash
 VITE_API_URL=http://localhost:3001
 ```
 
-#### 3. Start the Database
+**Database:** PostgreSQL with pgvector runs on port 5433 via Docker Compose
 
-The PostgreSQL database with pgvector is already running on port 5433:
-
-```bash
-docker ps | grep crypto_news_db
-```
-
-If it's not running:
-```bash
-docker-compose up -d postgres
-```
-
-#### 4. Run Backend
-
-```bash
-cd backend
-npm run dev
-```
-
-The backend will start on `http://localhost:3001`
-
-#### 5. Run Frontend
-
-In a new terminal:
-
-```bash
-cd frontend
-npm run dev
-```
-
-The frontend will start on `http://localhost:5173`
-
-#### 6. Use the Application
+#### Using the Application
 
 1. Open `http://localhost:5173` in your browser
 2. Ask a question about crypto news (e.g., "What's happening with Bitcoin?")
@@ -126,59 +83,13 @@ The frontend will start on `http://localhost:5173`
 
 ## How It Works
 
-### Architecture Flow
+**Flow:** User Question → Fetch RSS (3 sources) → Filter new articles → Process (summarize, chunk, embed, store) → Semantic search (vector similarity + re-rank) → Build context → Stream answer with citations
 
-```
-User Question
-    ↓
-Fetch RSS feeds (3 sources in parallel)
-    ↓
-Filter for new articles
-    ↓
-Process new articles:
-  - Generate summary (via OpenRouter LLM)
-  - Chunk content (summary + intro + chunks)
-  - Generate embeddings (via OpenRouter)
-  - Store in PostgreSQL with pgvector
-    ↓
-Semantic Search:
-  - Generate query embedding
-  - Vector similarity search (pgvector)
-  - Re-rank by relevance + recency
-  - Deduplicate (best chunk per article)
-  - Select top 5-7 articles
-    ↓
-Build context with anti-hallucination prompts
-    ↓
-Stream answer via OpenRouter LLM
-    ↓
-Display with clickable citations
-```
-
-### Key Features
-
-**Hybrid Chunking Strategy:**
-- Summary embeddings for broad topic matching
-- Full chunk embeddings for detailed semantics
-- Improves query-to-content similarity
-
-**Multi-Stage Retrieval:**
-1. Vector search (top 20 candidates)
-2. Re-rank (similarity × recency × boosts)
-3. Deduplicate (keep best chunk per article)
-4. Select top 5-7 diverse articles
-
-**Anti-Hallucination Measures:**
-- Explicit "only use provided articles" prompts
-- Required citations for every claim [1], [2], [3]
-- Confidence scoring (1-100%)
-- Temporal awareness (current date/time in prompt)
-- Citation validation after generation
-
-**Content Moderation:**
-- OpenAI Moderation API (free tier)
-- Checks for hate, harassment, violence, etc.
-- Fallback keyword blocklist
+**Key Features:**
+- **Hybrid Chunking**: Summary + full chunk embeddings for better matching
+- **Multi-Stage Retrieval**: Vector search → re-rank by relevance/recency → deduplicate → select top 5-7
+- **Anti-Hallucination**: Strict citation requirements, confidence scoring, temporal awareness, citation validation
+- **Content Moderation**: OpenAI Moderation API with keyword fallback
 
 ## Database Schema
 
@@ -228,163 +139,46 @@ Health check endpoint
 
 ### Debug Mode
 
-The application includes a comprehensive debug logging system that provides step-by-step visibility into every operation. This is essential for:
-- Tracking application flow and ensuring no stages are skipped
-- Identifying silent errors or failures
-- Understanding performance bottlenecks
-- Debugging complex multi-step processes
+Enable detailed logging for all operations:
 
-**Enable Debug Mode:**
-
-Add to `backend/.env`:
-```bash
-DEBUG=true
-```
-
-Or run with:
 ```bash
 DEBUG=true npm run dev
 ```
 
-**What Debug Mode Shows:**
+Logs include: ASK_REQUEST, INGESTION, RSS_FETCH_*, PROCESS_ARTICLE, EMBEDDING_GENERATION, VECTOR_SEARCH, AI_STREAMING, CITATION_VALIDATION
 
-When enabled, every operation logs:
-1. **STARTED phase** - What the operation is about to do, with context
-2. **FINISHED phase** - The result of the operation, with metrics
+### Commands
 
-**Example Debug Output:**
-
-```
-================================================================================
-[DEBUG] 2025-11-16T22:15:00.000Z
-[RSS_FETCH_ALL] STARTED: Fetching from all RSS sources
-Context: {
-  "sourceCount": 3,
-  "sources": ["DL News", "The Defiant", "Cointelegraph"]
-}
-================================================================================
-
-[DEBUG] 2025-11-16T22:15:00.123Z [RSS_FETCH_ALL] INFO: Source succeeded: DL News
-Data: { "articleCount": 25 }
-
---------------------------------------------------------------------------------
-[DEBUG] 2025-11-16T22:15:02.456Z
-[RSS_FETCH_ALL] FINISHED: Fetching from all RSS sources
-Duration: 2456ms
-Result: {
-  "totalArticles": 73,
-  "successfulSources": 3,
-  "failedSources": 0
-}
---------------------------------------------------------------------------------
-```
-
-**Debug Categories:**
-
-- `ASK_REQUEST` - User question handling
-- `INGESTION` - News ingestion pipeline
-- `RSS_FETCH_*` - RSS feed fetching
-- `PROCESS_ARTICLE` - Article processing
-- `EMBEDDING_GENERATION` - AI embedding generation
-- `VECTOR_SEARCH` - Semantic search queries
-- `AI_STREAMING` - LLM response streaming
-- `CITATION_VALIDATION` - Citation verification
-
-Debug mode has minimal performance impact and can be safely used in development.
-
-### Backend Commands
-
+**Backend:**
 ```bash
-npm run dev          # Start dev server with hot reload
-npm run build        # Build for production
-npm run start        # Start production server
-npm test             # Run tests
-npm run prisma:migrate  # Run database migrations
-
-# With debug mode
-DEBUG=true npm run dev
+npm run dev          # Dev server with hot reload
+npm run build        # Production build
+npm run start        # Production server
+npm run prisma:migrate  # Database migrations
 ```
 
-### Frontend Commands
-
+**Frontend:**
 ```bash
-npm run dev          # Start dev server
-npm run build        # Build for production
+npm run dev          # Dev server
+npm run build        # Production build
 npm run preview      # Preview production build
-npm test             # Run tests
 ```
-
-## Deployment
-
-The app is containerized and ready for deployment:
-
-```bash
-docker-compose up -d
-```
-
-This starts:
-- PostgreSQL with pgvector on port 5432
-- Backend API on port 3001
-- Frontend on port 80
-
-See `docker-compose.yml` for full configuration.
 
 ## RSS Sources
 
 1. **DL News**: https://www.dlnews.com/arc/outboundfeeds/rss/
 2. **The Defiant**: https://thedefiant.io/api/feed
+3. **Cointelegraph**: https://cointelegraph.com/rss
 
 Articles are fetched on every query to ensure fresh data.
 
 ## Troubleshooting
 
-### Database Connection Issues
+**Database:** `docker ps | grep crypto_news_db` → `docker-compose restart postgres`
 
-```bash
-# Check if database is running
-docker ps | grep crypto_news_db
+**Port conflict:** Modify `docker-compose.yml` ports to `5434:5432` and update `DATABASE_URL` in `backend/.env`
 
-# View database logs
-docker logs crypto_news_db
-
-# Restart database
-docker-compose restart postgres
-```
-
-### Backend Issues
-
-```bash
-# Check backend logs
-cd backend
-npm run dev
-
-# Verify environment variables
-cat .env
-```
-
-### Frontend Issues
-
-```bash
-# Clear cache and rebuild
-cd frontend
-rm -rf node_modules dist
-npm install
-npm run dev
-```
-
-### Port Already in Use
-
-If port 5433 is taken, modify `docker-compose.yml`:
-
-```yaml
-ports:
-  - "5434:5432"  # Change external port
-```
-
-Then update `backend/.env`:
-```bash
-DATABASE_URL=postgresql://crypto_agent:dev_password_123@localhost:5434/crypto_news
-```
+**Clear cache:** `cd frontend && rm -rf node_modules dist && npm install`
 
 ## License
 
