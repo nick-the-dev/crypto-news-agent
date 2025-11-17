@@ -11,5 +11,11 @@ export const RSS_SOURCES: RSSSource[] = [
     url: 'https://thedefiant.io/api/feed',
     contentField: 'content:encoded',
     fallbackField: 'description'
+  },
+  {
+    name: 'Cointelegraph',
+    url: 'https://cointelegraph.com/rss',
+    contentField: 'content:encoded',
+    fallbackField: 'description'
   }
 ];

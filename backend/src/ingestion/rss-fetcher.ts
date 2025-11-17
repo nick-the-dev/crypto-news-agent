@@ -19,6 +19,32 @@ async function fetchWithRetry(url: string, maxRetries = 3): Promise<any> {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 30000);
 
+      // Special handling for Cointelegraph - their RSS is missing version attribute
+      if (url.includes('cointelegraph.com')) {
+        console.log('[RSS] Special handling for Cointelegraph...');
+        const https = await import('https');
+
+        const xmlContent = await new Promise<string>((resolve, reject) => {
+          https.get(url, (res) => {
+            let data = '';
+            res.on('data', (chunk) => data += chunk);
+            res.on('end', () => resolve(data));
+            res.on('error', reject);
+          }).on('error', reject);
+        });
+
+        // Add version="2.0" if missing from <rss> tag specifically
+        let fixedXml = xmlContent;
+        const rssTagMatch = xmlContent.match(/<rss[^>]*>/);
+        if (rssTagMatch && !rssTagMatch[0].includes('version=')) {
+          fixedXml = xmlContent.replace(/<rss\s+/, '<rss version="2.0" ');
+          console.log('[RSS] Added version="2.0" attribute to Cointelegraph <rss> tag');
+        }
+
+        clearTimeout(timeout);
+        return await parser.parseString(fixedXml);
+      }
+
       const feed = await parser.parseURL(url);
       clearTimeout(timeout);
       return feed;
