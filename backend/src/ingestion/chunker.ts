@@ -15,11 +15,13 @@ function wordsToText(words: string[]): string {
 
 export async function chunkArticle(
   article: RawArticle,
-  agent: OpenRouterAgent
+  agent?: OpenRouterAgent,
+  preGeneratedSummary?: string
 ): Promise<ArticleChunkData[]> {
   const chunks: ArticleChunkData[] = [];
 
-  const summary = await agent.generateSummary(article);
+  // Use pre-generated summary if provided, otherwise generate it
+  const summary = preGeneratedSummary || (agent ? await agent.generateSummary(article) : article.content.substring(0, 300) + '...');
   chunks.push({
     chunkIndex: 0,
     content: summary,

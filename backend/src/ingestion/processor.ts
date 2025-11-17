@@ -4,10 +4,12 @@ import { prisma } from '../utils/db';
 import { OpenRouterAgent } from '../agents/openrouter-agent';
 import { chunkArticle } from './chunker';
 import { debugLogger } from '../utils/debug-logger';
+import { processConcurrently, chunkArray } from '../utils/concurrency';
 
 export async function processArticle(
   article: RawArticle,
-  agent: OpenRouterAgent
+  agent: OpenRouterAgent,
+  preGeneratedSummary?: string
 ): Promise<void> {
   const stepId = debugLogger.stepStart('PROCESS_ARTICLE', `Processing article: ${article.title}`, {
     url: article.url,
@@ -20,7 +22,7 @@ export async function processArticle(
     const chunkStepId = debugLogger.stepStart('ARTICLE_CHUNKING', 'Chunking article content', {
       url: article.url
     });
-    const chunkData = await chunkArticle(article, agent);
+    const chunkData = await chunkArticle(article, agent, preGeneratedSummary);
     debugLogger.stepFinish(chunkStepId, {
       chunkCount: chunkData.length,
       hasSummary: chunkData.some(c => c.isSummary)
@@ -43,6 +45,7 @@ export async function processArticle(
     });
 
     await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      // Create article
       const createdArticle = await tx.article.create({
         data: {
           url: article.url,
@@ -59,23 +62,35 @@ export async function processArticle(
         articleId: createdArticle.id
       });
 
-      for (let i = 0; i < chunkData.length; i++) {
-        const chunk = chunkData[i];
-        const embedding = embeddings[i];
+      // Batch create chunks
+      await tx.articleChunk.createMany({
+        data: chunkData.map(chunk => ({
+          articleId: createdArticle.id,
+          chunkIndex: chunk.chunkIndex,
+          content: chunk.content,
+          isIntro: chunk.isIntro,
+          isSummary: chunk.isSummary
+        }))
+      });
 
-        const createdChunk = await tx.articleChunk.create({
-          data: {
-            articleId: createdArticle.id,
-            chunkIndex: chunk.chunkIndex,
-            content: chunk.content,
-            isIntro: chunk.isIntro,
-            isSummary: chunk.isSummary
-          }
+      // Fetch created chunks to get their IDs (ordered by chunkIndex)
+      const createdChunks = await tx.articleChunk.findMany({
+        where: { articleId: createdArticle.id },
+        orderBy: { chunkIndex: 'asc' }
+      });
+
+      // Batch insert embeddings using raw SQL
+      if (createdChunks.length > 0) {
+        // Build VALUES clauses for all embeddings
+        const values = createdChunks.map((chunk, i) => {
+          const embedding = embeddings[i];
+          return Prisma.sql`(gen_random_uuid(), ${chunk.id}, ${Prisma.sql`${JSON.stringify(embedding)}::vector`}, NOW())`;
         });
 
+        // Execute single INSERT with all values
         await tx.$executeRaw`
           INSERT INTO "ArticleEmbedding" (id, "chunkId", embedding, "createdAt")
-          VALUES (gen_random_uuid(), ${createdChunk.id}, ${Prisma.sql`${JSON.stringify(embedding)}::vector`}, NOW())
+          VALUES ${Prisma.join(values)}
         `;
       }
 
@@ -108,40 +123,74 @@ export async function processNewArticles(
     articleCount: articles.length
   });
 
-  const errors: string[] = [];
-  let processed = 0;
+  if (articles.length === 0) {
+    debugLogger.stepFinish(stepId, { total: 0, processed: 0, failed: 0 });
+    return { processed: 0, errors: [] };
+  }
 
-  for (let i = 0; i < articles.length; i++) {
-    const article = articles[i];
-    debugLogger.info('PROCESS_NEW_ARTICLES', `Processing article ${i + 1}/${articles.length}`, {
-      title: article.title,
-      source: article.source
+  // Step 1: Pre-generate summaries in batches for all articles
+  const summaryStepId = debugLogger.stepStart('BATCH_SUMMARY_GENERATION', 'Generating summaries in batches', {
+    articleCount: articles.length
+  });
+
+  const summaryMap = new Map<string, string>();
+  const SUMMARY_BATCH_SIZE = 10; // Process 10 articles per AI call (smaller batches = more reliable JSON)
+  const articleBatches = chunkArray(articles, SUMMARY_BATCH_SIZE);
+
+  for (let i = 0; i < articleBatches.length; i++) {
+    const batch = articleBatches[i];
+    debugLogger.info('BATCH_SUMMARY_GENERATION', `Processing batch ${i + 1}/${articleBatches.length}`, {
+      batchSize: batch.length
     });
 
     try {
-      await processArticle(article, agent);
-      processed++;
-      debugLogger.info('PROCESS_NEW_ARTICLES', `Successfully processed article ${i + 1}/${articles.length}`, {
-        processed,
-        remaining: articles.length - (i + 1)
-      });
+      const batchSummaries = await agent.generateSummariesBatch(batch);
+      // Merge batch summaries into the main map
+      for (const [url, summary] of batchSummaries.entries()) {
+        summaryMap.set(url, summary);
+      }
     } catch (error) {
-      const errorMsg = `${article.url}: ${error instanceof Error ? error.message : 'Unknown error'}`;
-      errors.push(errorMsg);
-      debugLogger.warn('PROCESS_NEW_ARTICLES', `Failed to process article ${i + 1}/${articles.length}`, {
-        url: article.url,
-        error: errorMsg
+      debugLogger.warn('BATCH_SUMMARY_GENERATION', `Batch ${i + 1} failed, using fallbacks`, {
+        error: error instanceof Error ? error.message : 'Unknown error'
       });
-      console.error(errorMsg);
+      // Use fallback summaries for this batch
+      for (const article of batch) {
+        if (!summaryMap.has(article.url)) {
+          summaryMap.set(article.url, article.content.substring(0, 300) + '...');
+        }
+      }
     }
   }
 
+  debugLogger.stepFinish(summaryStepId, {
+    totalSummaries: summaryMap.size,
+    batches: articleBatches.length
+  });
+
+  // Step 2: Process articles concurrently with pre-generated summaries
+  const CONCURRENCY = 25; // Process 25 articles in parallel
+  const result = await processConcurrently(
+    articles,
+    async (article) => {
+      const summary = summaryMap.get(article.url);
+      await processArticle(article, agent, summary);
+    },
+    { concurrency: CONCURRENCY, label: 'Article Processing' }
+  );
+
+  const errors = result.failed.map(
+    f => `${articles[f.index]?.url}: ${f.error.message}`
+  );
+
   debugLogger.stepFinish(stepId, {
     total: articles.length,
-    processed,
-    failed: errors.length,
+    processed: result.successful.length,
+    failed: result.failed.length,
     errors: errors.length > 0 ? errors : undefined
   });
 
-  return { processed, errors };
+  return {
+    processed: result.successful.length,
+    errors
+  };
 }

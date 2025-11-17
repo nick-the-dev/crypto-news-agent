@@ -74,6 +74,98 @@ Summary:`;
     }
   }
 
+  /**
+   * Generate summaries for multiple articles in a single batch AI call.
+   * This is much more efficient than calling generateSummary() for each article.
+   *
+   * @param articles - Array of articles to summarize
+   * @returns Map of article URLs to their summaries
+   */
+  async generateSummariesBatch(articles: RawArticle[]): Promise<Map<string, string>> {
+    if (articles.length === 0) {
+      return new Map();
+    }
+
+    // Build a prompt that asks for summaries of all articles at once
+    const articlesText = articles.map((article, idx) =>
+      `[ARTICLE ${idx + 1}]
+URL: ${article.url}
+Title: ${article.title}
+Content: ${article.content.substring(0, 2000)}
+`
+    ).join('\n---\n\n');
+
+    const prompt = `You are a JSON generator. Summarize each crypto news article below.
+
+CRITICAL: Output ONLY valid JSON. Escape all quotes and special characters properly.
+
+Format: JSON array where each element has:
+- "url": article URL (string)
+- "summary": 2-3 sentence summary (string, escape all quotes as \")
+
+${articlesText}
+
+Output valid JSON only:`;
+
+    try {
+      const response = await this.client.chat.completions.create({
+        model: LLM_MODEL,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.2,
+        max_tokens: 200 * articles.length // Scale tokens based on number of articles
+      });
+
+      const content = response.choices[0].message.content?.trim();
+      if (!content) {
+        throw new Error('Empty response from AI');
+      }
+
+      // Strip markdown code blocks if present (```json ... ```)
+      let jsonContent = content;
+      if (content.startsWith('```')) {
+        // Remove opening ```json or ``` and closing ```
+        jsonContent = content
+          .replace(/^```(?:json)?\s*\n?/, '')
+          .replace(/\n?```\s*$/, '')
+          .trim();
+      }
+
+      // Parse the JSON response
+      let summaries: Array<{ url: string; summary: string }>;
+      try {
+        summaries = JSON.parse(jsonContent);
+      } catch (parseError) {
+        // Log first 500 chars for debugging
+        console.error('JSON parse failed. First 500 chars:', jsonContent.substring(0, 500));
+        throw new Error(`JSON parsing failed: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`);
+      }
+
+      // Create a map for easy lookup
+      const summaryMap = new Map<string, string>();
+      for (const { url, summary } of summaries) {
+        summaryMap.set(url, summary);
+      }
+
+      // Fill in fallbacks for any missing summaries
+      for (const article of articles) {
+        if (!summaryMap.has(article.url)) {
+          summaryMap.set(article.url, article.content.substring(0, 300) + '...');
+        }
+      }
+
+      return summaryMap;
+    } catch (error) {
+      console.error('Failed to generate batch summaries:', error);
+
+      // Fallback: return truncated content for all articles
+      const fallbackMap = new Map<string, string>();
+      for (const article of articles) {
+        fallbackMap.set(article.url, article.content.substring(0, 300) + '...');
+      }
+      return fallbackMap;
+    }
+  }
+
   async *streamAnswer(systemPrompt: string, userPrompt: string): AsyncGenerator<string> {
     const stream = await this.client.chat.completions.create({
       model: LLM_MODEL,
