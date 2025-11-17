@@ -13,6 +13,10 @@ dotenv.config();
 const app = express();
 const PORT = parseInt(process.env.PORT || '3001', 10);
 
+// Trust proxy - required when running behind reverse proxy (nginx, Easypanel, etc.)
+// This allows express-rate-limit to correctly identify users via X-Forwarded-For
+app.set('trust proxy', true);
+
 app.use(express.json());
 app.use(corsMiddleware);
 app.use(requestLogger);
