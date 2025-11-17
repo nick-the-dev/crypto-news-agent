@@ -91,6 +91,24 @@ VITE_API_URL=http://localhost:3001
 - **Anti-Hallucination**: Strict citation requirements, confidence scoring, temporal awareness, citation validation
 - **Content Moderation**: OpenAI Moderation API with keyword fallback
 
+## Background Processing
+
+The application automatically ingests and processes crypto news articles via a background cron job:
+
+- **Frequency**: Runs every 1 minute
+- **Auto-start**: Begins automatically when the backend server starts
+- **Processing Pipeline**:
+  1. Fetches articles from all 3 RSS sources (DL News, The Defiant, Cointelegraph)
+  2. Filters for new articles (checks against database)
+  3. Generates AI summaries
+  4. Creates text chunks (600 words, 100 word overlap)
+  5. Generates embeddings (batch of 100 chunks)
+  6. Stores everything in PostgreSQL
+
+**Benefits**: User queries return near-instant responses because all preprocessing (summarization, chunking, embeddings) is already completed in the background.
+
+**Monitoring**: Check job health and metrics via `GET /api/job-status`
+
 ## Database Schema
 
 ```sql
@@ -99,6 +117,8 @@ Article (id, url, title, content, summary, source, author, publishedAt)
       └── ArticleEmbedding (id, chunkId, embedding vector(1024))
 
 QueryLog (id, question, articlesRetrieved, confidence, processingTimeMs)
+
+JobRun (id, startedAt, completedAt, status, articlesProcessed, embeddingsCreated, durationMs, errorMessage)
 ```
 
 ## API Endpoints
@@ -132,6 +152,37 @@ Health check endpoint
   "totalArticles": 150,
   "latestArticle": "2025-11-16T20:30:00.000Z",
   "timestamp": "2025-11-16T22:15:00.000Z"
+}
+```
+
+### GET /api/job-status
+Background job monitoring endpoint
+
+**Response:**
+```json
+{
+  "healthy": true,
+  "scheduler": {
+    "running": true,
+    "cronExpression": "*/1 * * * *",
+    "description": "Runs every 1 minute",
+    "currentlyExecuting": false
+  },
+  "stats": {
+    "totalRuns": 42,
+    "successfulRuns": 40,
+    "failedRuns": 2,
+    "consecutiveFailures": 0,
+    "averageDurationMs": 3245
+  },
+  "lastRun": {
+    "startedAt": "2025-11-17T02:40:00.000Z",
+    "completedAt": "2025-11-17T02:40:03.245Z",
+    "status": "SUCCESS",
+    "articlesProcessed": 5,
+    "embeddingsCreated": 23,
+    "durationMs": 3245
+  }
 }
 ```
 
