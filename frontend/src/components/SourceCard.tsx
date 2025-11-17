@@ -4,7 +4,7 @@ interface Props extends ArticleSource {
   id: string;
 }
 
-export function SourceCard({ number, title, source, url, publishedAt, relevance, id }: Props) {
+export function SourceCard({ number, title, source, url, publishedAt, id }: Props) {
   const publishedDate = new Date(publishedAt);
   const hoursAgo = Math.round((Date.now() - publishedDate.getTime()) / (1000 * 60 * 60));
   const timeAgo = hoursAgo < 24

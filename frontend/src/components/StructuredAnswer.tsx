@@ -1,7 +1,5 @@
-import { useState } from 'react';
 import { StructuredAnswer as StructuredAnswerType } from '../types';
 import { ConfidenceBadge } from './ConfidenceBadge';
-import { SourceCard } from './SourceCard';
 
 interface Props {
   answer: StructuredAnswerType;
