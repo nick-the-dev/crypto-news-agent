@@ -8,8 +8,6 @@ import { debugLogger } from '../utils/debug-logger';
 
 class IngestionQueue {
   private isIngesting = false;
-  private lastResult: IngestionStats | null = null;
-  private lastIngestTime = 0;
   private waitingRequests: Array<(result: IngestionStats) => void> = [];
 
   async ingest(agent: OpenRouterAgent): Promise<IngestionStats> {
@@ -17,18 +15,6 @@ class IngestionQueue {
       waitingRequests: this.waitingRequests.length,
       isIngesting: this.isIngesting
     });
-
-    // Check cache
-    if (Date.now() - this.lastIngestTime < 10000 && this.lastResult) {
-      debugLogger.info('INGESTION', 'Using cached result from recent ingestion', {
-        cacheAge: Date.now() - this.lastIngestTime
-      });
-      debugLogger.stepFinish(stepId, {
-        ...this.lastResult,
-        cached: true
-      });
-      return this.lastResult;
-    }
 
     // Check if already ingesting
     if (this.isIngesting) {
@@ -77,9 +63,6 @@ class IngestionQueue {
         processed,
         errors
       };
-
-      this.lastResult = result;
-      this.lastIngestTime = Date.now();
 
       // Notify waiting requests
       if (this.waitingRequests.length > 0) {

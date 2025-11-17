@@ -134,7 +134,7 @@ export async function processNewArticles(
   });
 
   const summaryMap = new Map<string, string>();
-  const SUMMARY_BATCH_SIZE = 10; // Process 10 articles per AI call (smaller batches = more reliable JSON)
+  const SUMMARY_BATCH_SIZE = 5; // Reduced from 10 to 5 for more reliable JSON generation
   const articleBatches = chunkArray(articles, SUMMARY_BATCH_SIZE);
 
   for (let i = 0; i < articleBatches.length; i++) {

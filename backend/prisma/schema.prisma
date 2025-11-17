@@ -54,3 +54,18 @@ model QueryLog {
   processingTimeMs   Int
   createdAt          DateTime @default(now())
 }
+
+model JobRun {
+  id                 String   @id @default(uuid())
+  startedAt          DateTime
+  completedAt        DateTime?
+  status             String   // 'RUNNING', 'SUCCESS', 'FAILED'
+  articlesProcessed  Int?
+  embeddingsCreated  Int?
+  durationMs         Int?
+  errorMessage       String?  @db.Text
+  createdAt          DateTime @default(now())
+
+  @@index([startedAt])
+  @@index([status])
+}
