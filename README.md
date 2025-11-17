@@ -34,28 +34,17 @@ AI-powered crypto news agent that provides real-time answers based on the latest
 - OpenRouter API key ([Get one here](https://openrouter.ai/))
 - OpenAI API key ([Get one here](https://platform.openai.com/api-keys))
 
-## Quick Start
+## First-Time Setup
 
-### Quick Start (One Command)
-
-```bash
-npm run install:all  # Install all dependencies
-npm run dev          # Start backend (port 3001) and frontend (port 5173)
-```
-
-### Manual Setup
+### 1. Install Dependencies
 
 ```bash
-# Backend
-cd backend && npm install && npm run dev
-
-# Frontend (new terminal)
-cd frontend && npm install && npm run dev
+npm run install:all  # Installs dependencies for root, backend, and frontend
 ```
 
-**Environment Variables:**
+### 2. Configure Environment Variables
 
-`backend/.env`:
+Create `backend/.env`:
 ```bash
 DATABASE_URL=postgresql://crypto_agent:dev_password_123@localhost:5433/crypto_news
 OPENROUTER_API_KEY=sk-or-v1-...
@@ -64,14 +53,41 @@ PORT=3001
 FRONTEND_URL=http://localhost:5173
 ```
 
-`frontend/.env`:
+Create `frontend/.env`:
 ```bash
 VITE_API_URL=http://localhost:3001
 ```
 
-**Database:** PostgreSQL with pgvector runs on port 5433 via Docker Compose
+### 3. Initialize Database
 
-#### Using the Application
+Start the PostgreSQL database with pgvector extension (runs on port 5433):
+```bash
+docker-compose up -d postgres
+```
+
+Run Prisma migrations to create the database schema:
+```bash
+cd backend
+npm run prisma:migrate
+```
+
+This creates the tables: `Article`, `ArticleChunk`, `ArticleEmbedding`, `QueryLog`, and `JobRun`.
+
+### 4. Start the Application
+
+```bash
+npm run dev  # Starts backend (port 3001) and frontend (port 5173)
+```
+
+## Quick Start
+
+After initial setup, you can start the application with:
+
+```bash
+npm run dev  # Start backend (port 3001) and frontend (port 5173)
+```
+
+### Using the Application
 
 1. Open `http://localhost:5173` in your browser
 2. Ask a question about crypto news (e.g., "What's happening with Bitcoin?")
