@@ -33,7 +33,6 @@ async function fetchWithRetry(url: string, maxRetries = 3): Promise<any> {
       // Special handling for Cointelegraph - their RSS is missing version attribute
       if (url.includes('cointelegraph.com')) {
         debugLogger.info('RSS_FETCH_ATTEMPT', 'Special handling for Cointelegraph RSS feed');
-        console.log('[RSS] Special handling for Cointelegraph...');
         const https = await import('https');
 
         const xmlContent = await new Promise<string>((resolve, reject) => {
@@ -51,7 +50,6 @@ async function fetchWithRetry(url: string, maxRetries = 3): Promise<any> {
         if (rssTagMatch && !rssTagMatch[0].includes('version=')) {
           fixedXml = xmlContent.replace(/<rss\s+/, '<rss version="2.0" ');
           debugLogger.info('RSS_FETCH_ATTEMPT', 'Added version="2.0" attribute to Cointelegraph <rss> tag');
-          console.log('[RSS] Added version="2.0" attribute to Cointelegraph <rss> tag');
         }
 
         clearTimeout(timeout);

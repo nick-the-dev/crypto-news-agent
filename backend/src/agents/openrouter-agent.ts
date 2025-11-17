@@ -12,6 +12,9 @@ export class OpenRouterAgent {
       throw new Error('OpenRouter API key is required');
     }
 
+    // Disable OpenAI SDK debug logging
+    process.env.OPENAI_LOG = 'off';
+
     this.client = new OpenAI({
       baseURL: 'https://openrouter.ai/api/v1',
       apiKey,

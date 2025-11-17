@@ -101,6 +101,8 @@ export class ModerationService {
 
   constructor(apiKey?: string) {
     if (apiKey) {
+      // Disable OpenAI SDK debug logging
+      process.env.OPENAI_LOG = 'off';
       this.client = new OpenAI({ apiKey });
     }
   }

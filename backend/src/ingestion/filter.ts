@@ -22,7 +22,5 @@ export async function filterNewArticles(articles: RawArticle[]): Promise<RawArti
   const existingUrls = new Set(existingArticles.map((a: { url: string }) => a.url));
   const newArticles = articles.filter((a: RawArticle) => !existingUrls.has(a.url));
 
-  console.log(`Fetched: ${articles.length}, Existing: ${existingUrls.size}, New: ${newArticles.length}`);
-
   return newArticles;
 }

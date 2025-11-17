@@ -35,9 +35,6 @@ export async function retrieveRelevantArticles(
     limit: 20
   });
 
-  console.log(`[Search] Query: "${query}"`);
-  console.log(`[Search] Days back: ${daysBack}, Date filter: ${dateFilter.toISOString()}`);
-
   // Step 3: Execute vector search query
   const searchStepId = debugLogger.stepStart('VECTOR_SEARCH', 'Executing vector similarity search', {
     dateFilter: dateFilter.toISOString()
@@ -75,11 +72,6 @@ export async function retrieveRelevantArticles(
     resultCount: results.length,
     topScores
   });
-
-  console.log(`[Search] Found ${results.length} results with similarity >= 0.5`);
-  if (results.length > 0) {
-    console.log(`[Search] Top 5 similarity scores:`, topScores);
-  }
 
   if (results.length === 0) {
     debugLogger.stepFinish(stepId, { resultCount: 0 });

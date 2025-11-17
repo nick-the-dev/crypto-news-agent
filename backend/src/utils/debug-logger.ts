@@ -39,7 +39,6 @@ class DebugLogger {
     if (!this.isDebugMode) return '';
 
     const stepId = `${category}_${++this.stepCounter}`;
-    const timestamp = new Date().toISOString();
 
     this.activeSteps.set(stepId, {
       category,
@@ -47,15 +46,11 @@ class DebugLogger {
       startTime: Date.now()
     });
 
-    console.log('\n' + '='.repeat(80));
-    console.log(`[DEBUG] ${timestamp}`);
-    console.log(`[${category}] STARTED: ${description}`);
+    const metaStr = metadata && Object.keys(metadata).length > 0
+      ? ` | ${JSON.stringify(metadata)}`
+      : '';
 
-    if (metadata && Object.keys(metadata).length > 0) {
-      console.log('Context:', JSON.stringify(metadata, null, 2));
-    }
-
-    console.log('='.repeat(80));
+    console.log(`▶ [${category}] ${description}${metaStr}`);
 
     return stepId;
   }
@@ -70,23 +65,16 @@ class DebugLogger {
 
     const step = this.activeSteps.get(stepId);
     if (!step) {
-      console.warn(`[DEBUG] Warning: Attempted to finish unknown step: ${stepId}`);
+      console.warn(`⚠ Unknown step: ${stepId}`);
       return;
     }
 
     const duration = Date.now() - step.startTime;
-    const timestamp = new Date().toISOString();
+    const resultStr = result && Object.keys(result).length > 0
+      ? ` | ${JSON.stringify(result)}`
+      : '';
 
-    console.log('\n' + '-'.repeat(80));
-    console.log(`[DEBUG] ${timestamp}`);
-    console.log(`[${step.category}] FINISHED: ${step.description}`);
-    console.log(`Duration: ${duration}ms`);
-
-    if (result && Object.keys(result).length > 0) {
-      console.log('Result:', JSON.stringify(result, null, 2));
-    }
-
-    console.log('-'.repeat(80) + '\n');
+    console.log(`✓ [${step.category}] ${step.description} (${duration}ms)${resultStr}`);
 
     this.activeSteps.delete(stepId);
   }
@@ -112,23 +100,14 @@ class DebugLogger {
       }
     }
 
-    const timestamp = new Date().toISOString();
+    const durationStr = duration > 0 ? ` (${duration}ms)` : '';
+    const errorMsg = error instanceof Error ? error.message : String(error);
 
-    console.log('\n' + '!'.repeat(80));
-    console.log(`[DEBUG] ${timestamp}`);
-    console.log(`[${step?.category || category}] ERROR: ${description}`);
+    console.log(`✗ [${step?.category || category}] ${description}${durationStr} | ${errorMsg}`);
 
-    if (duration > 0) {
-      console.log(`Duration before error: ${duration}ms`);
+    if (error instanceof Error && error.stack && this.isDebugMode) {
+      console.log(`  Stack: ${error.stack.split('\n')[1]?.trim() || error.stack}`);
     }
-
-    console.log('Error details:', error instanceof Error ? error.message : String(error));
-
-    if (error instanceof Error && error.stack) {
-      console.log('Stack trace:', error.stack);
-    }
-
-    console.log('!'.repeat(80) + '\n');
   }
 
   /**
@@ -140,13 +119,11 @@ class DebugLogger {
   info(category: string, message: string, data?: Record<string, any>): void {
     if (!this.isDebugMode) return;
 
-    const timestamp = new Date().toISOString();
+    const dataStr = data && Object.keys(data).length > 0
+      ? ` | ${JSON.stringify(data)}`
+      : '';
 
-    console.log(`[DEBUG] ${timestamp} [${category}] INFO: ${message}`);
-
-    if (data && Object.keys(data).length > 0) {
-      console.log('Data:', JSON.stringify(data, null, 2));
-    }
+    console.log(`ℹ [${category}] ${message}${dataStr}`);
   }
 
   /**
@@ -158,13 +135,11 @@ class DebugLogger {
   warn(category: string, message: string, data?: Record<string, any>): void {
     if (!this.isDebugMode) return;
 
-    const timestamp = new Date().toISOString();
+    const dataStr = data && Object.keys(data).length > 0
+      ? ` | ${JSON.stringify(data)}`
+      : '';
 
-    console.log(`[DEBUG] ${timestamp} [${category}] WARNING: ${message}`);
-
-    if (data && Object.keys(data).length > 0) {
-      console.log('Data:', JSON.stringify(data, null, 2));
-    }
+    console.log(`⚠ [${category}] ${message}${dataStr}`);
   }
 
   /**
@@ -190,16 +165,14 @@ class DebugLogger {
     const activeSteps = this.getActiveSteps();
 
     if (activeSteps.length === 0) {
-      console.log('[DEBUG] No active steps');
+      console.log('📋 No active steps');
       return;
     }
 
-    console.log('\n' + '~'.repeat(80));
-    console.log('[DEBUG] ACTIVE STEPS (not yet finished):');
+    console.log(`📋 Active steps (${activeSteps.length}):`);
     activeSteps.forEach(step => {
-      console.log(`  - [${step.category}] ${step.description} (running for ${step.duration}ms)`);
+      console.log(`  ↳ [${step.category}] ${step.description} (${step.duration}ms)`);
     });
-    console.log('~'.repeat(80) + '\n');
   }
 }
 
