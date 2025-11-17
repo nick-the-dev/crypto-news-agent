@@ -42,7 +42,12 @@ function App() {
         )}
 
         <footer className="text-center mt-16 text-gray-600 text-sm">
-          Powered by OpenRouter • Sources: DL News, The Defiant, Cointelegraph
+          <div className="mb-2">
+            Made with ♥️ by Nick Taran
+          </div>
+          <div>
+            Powered by OpenRouter • Sources: DL News, The Defiant, Cointelegraph
+          </div>
         </footer>
       </div>
     </div>
