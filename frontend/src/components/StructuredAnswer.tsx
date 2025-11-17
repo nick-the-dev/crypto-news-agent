@@ -42,47 +42,75 @@ export function StructuredAnswer({ answer, streamingTldr, streamingDetails }: Pr
 
   return (
     <div className="w-full max-w-4xl mx-auto space-y-6">
-      <div className="bg-blue-50 border-l-4 border-blue-600 p-4 rounded-r-lg">
-        <div className="flex items-center gap-2 mb-2">
-          <span className="text-2xl">⚡</span>
-          <h2 className="text-lg font-bold text-gray-900">TL;DR</h2>
-        </div>
-        <p className="text-gray-800 text-lg">
-          {streamingTldr || answer.tldr}
-          {streamingTldr && <span className="inline-block w-2 h-5 bg-blue-600 animate-pulse ml-1"></span>}
-        </p>
-      </div>
-
       <div className="bg-white border border-gray-200 rounded-lg p-6">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
-            <span className="text-2xl">📊</span>
-            <h2 className="text-xl font-bold text-gray-900">Details</h2>
+            <span className="text-2xl">💡</span>
+            <h2 className="text-xl font-bold text-gray-900">Answer</h2>
           </div>
           <ConfidenceBadge score={answer.confidence} />
         </div>
-        <div className="text-gray-700 leading-relaxed whitespace-pre-wrap">
-          {streamingDetails ? (
-            <>
-              {renderWithCitations(streamingDetails)}
-              <span className="inline-block w-2 h-5 bg-blue-600 animate-pulse ml-1"></span>
-            </>
-          ) : (
-            renderWithCitations(answer.details.content)
-          )}
-        </div>
-      </div>
+        <div className="text-gray-700 leading-relaxed">
+          {/* TL;DR section */}
+          <div className="mb-4">
+            <p className="text-lg font-semibold text-gray-900 mb-2">
+              {streamingTldr || answer.tldr}
+              {streamingTldr && !streamingDetails && <span className="inline-block w-2 h-5 bg-blue-600 animate-pulse ml-1"></span>}
+            </p>
+          </div>
 
-      <div>
-        <h2 className="text-2xl font-bold text-gray-900 mb-4">📰 Sources</h2>
-        <div className="grid gap-4">
-          {answer.sources.map((source) => (
-            <SourceCard
-              key={source.number}
-              {...source}
-              id={`source-${source.number}`}
-            />
-          ))}
+          {/* Details section */}
+          {(streamingDetails || answer.details.content) && (
+            <div className="text-gray-700 whitespace-pre-wrap mb-6">
+              {streamingDetails ? (
+                <>
+                  {renderWithCitations(streamingDetails)}
+                  <span className="inline-block w-2 h-5 bg-blue-600 animate-pulse ml-1"></span>
+                </>
+              ) : (
+                renderWithCitations(answer.details.content)
+              )}
+            </div>
+          )}
+
+          {/* Sources as compact tiles */}
+          {answer.sources.length > 0 && (
+            <div className="pt-4 border-t border-gray-200">
+              <h3 className="text-sm font-semibold text-gray-600 mb-3">📰 Sources</h3>
+              <div className="flex flex-wrap gap-2">
+                {answer.sources.map((source) => {
+                  const publishedDate = new Date(source.publishedAt);
+                  const hoursAgo = Math.round((Date.now() - publishedDate.getTime()) / (1000 * 60 * 60));
+                  const timeAgo = hoursAgo < 24
+                    ? `${hoursAgo}h ago`
+                    : `${Math.round(hoursAgo / 24)}d ago`;
+
+                  return (
+                    <a
+                      key={source.number}
+                      id={`source-${source.number}`}
+                      href={source.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="group flex-shrink-0 inline-flex items-center gap-1.5 px-2 py-1.5 bg-gray-50 hover:bg-blue-50 border border-gray-200 hover:border-blue-400 rounded-lg transition-all"
+                    >
+                      <span className="flex-shrink-0 w-4 h-4 bg-blue-600 text-white rounded-full flex items-center justify-center font-bold text-[10px]">
+                        {source.number}
+                      </span>
+                      <div className="flex flex-col items-start">
+                        <span className="font-medium text-gray-900 group-hover:text-blue-600 whitespace-nowrap text-xs">
+                          {source.title}
+                        </span>
+                        <span className="text-[10px] text-gray-500 whitespace-nowrap">
+                          {source.source} • {timeAgo}
+                        </span>
+                      </div>
+                    </a>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

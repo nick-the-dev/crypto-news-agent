@@ -88,7 +88,17 @@ export function useStreamingAnswer() {
           return { ...prev, status: 'Analyzing articles...' };
 
         case 'sources':
-          return { ...prev, sources: event.data };
+          return {
+            ...prev,
+            sources: event.data,
+            // Create initial answer object so component can render and show streaming
+            answer: {
+              tldr: '',
+              details: { content: '', citations: [] },
+              confidence: 0,
+              sources: event.data
+            }
+          };
 
         case 'status':
           return { ...prev, status: event.data.message };
