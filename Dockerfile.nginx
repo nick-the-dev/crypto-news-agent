@@ -1,0 +1,73 @@
+# Alternative: Nginx-based deployment
+# Uses nginx to serve frontend and proxy API calls to backend
+
+# Stage 1: Build Frontend
+FROM node:20-alpine AS frontend-builder
+WORKDIR /app/frontend
+COPY frontend/package*.json ./
+RUN npm ci
+COPY frontend/ ./
+RUN npm run build
+
+# Stage 2: Build Backend
+FROM node:20-alpine AS backend-builder
+WORKDIR /app/backend
+COPY backend/package*.json ./
+COPY backend/prisma ./prisma/
+RUN npm ci
+COPY backend/ ./
+RUN npx prisma generate
+RUN npm run build
+
+# Stage 3: Setup nginx and backend
+FROM nginx:alpine
+RUN apk add --no-cache nodejs npm
+
+WORKDIR /app
+
+# Copy backend
+COPY --from=backend-builder /app/backend/dist ./backend/dist
+COPY --from=backend-builder /app/backend/node_modules ./backend/node_modules
+COPY --from=backend-builder /app/backend/prisma ./backend/prisma
+COPY backend/package*.json ./backend/
+
+# Copy frontend to nginx
+COPY --from=frontend-builder /app/frontend/dist /usr/share/nginx/html
+
+# Nginx configuration for proxying to backend
+RUN echo 'server { \
+    listen 80; \
+    server_name _; \
+    \
+    location / { \
+        root /usr/share/nginx/html; \
+        try_files $uri $uri/ /index.html; \
+    } \
+    \
+    location /ask { \
+        proxy_pass http://localhost:3001; \
+        proxy_http_version 1.1; \
+        proxy_set_header Upgrade $http_upgrade; \
+        proxy_set_header Connection "upgrade"; \
+        proxy_set_header Host $host; \
+        proxy_cache_bypass $http_upgrade; \
+        proxy_buffering off; \
+    } \
+    \
+    location /health { \
+        proxy_pass http://localhost:3001; \
+    } \
+    \
+    location /api/ { \
+        proxy_pass http://localhost:3001; \
+    } \
+}' > /etc/nginx/conf.d/default.conf
+
+# Startup script
+RUN echo '#!/bin/sh \n\
+cd /app/backend && npx prisma migrate deploy && node dist/server.js & \n\
+nginx -g "daemon off;"' > /start.sh && chmod +x /start.sh
+
+EXPOSE 80
+
+CMD ["/start.sh"]
