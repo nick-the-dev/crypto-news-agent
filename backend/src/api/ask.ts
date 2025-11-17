@@ -112,7 +112,7 @@ export async function handleAsk(req: Request, res: Response): Promise<void> {
       res.write(`data: ${JSON.stringify({
         tldr: "No relevant recent crypto news found on this topic.",
         details: {
-          content: "I don't have recent information about this in my news database. This could mean the topic is very new, niche, or not covered by the sources I monitor (DL News, The Defiant). Try rephrasing your question or asking about a different crypto topic.",
+          content: "I don't have recent information about this in my news database. This could mean the topic is very new, niche, or not covered by the sources I monitor (DL News, The Defiant, Cointelegraph). Try rephrasing your question or asking about a different crypto topic.",
           citations: []
         },
         confidence: 10
