@@ -105,7 +105,7 @@ export async function retrieveRelevantArticles(
   });
 
   // Step 6: Select top results
-  const topResults = deduplicatedResults.slice(0, 7);
+  const topResults = deduplicatedResults.slice(0, 20);
 
   const finalResults = topResults.map(r => ({
     article: {
