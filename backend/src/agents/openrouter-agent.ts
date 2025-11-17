@@ -60,7 +60,7 @@ Summary:`;
       const response = await this.client.chat.completions.create({
         model: LLM_MODEL,
         messages: [{ role: 'user', content: prompt }],
-        temperature: 0.3,
+        temperature: 0.2,
         max_tokens: 200
       });
 

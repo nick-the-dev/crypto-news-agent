@@ -9,6 +9,7 @@ interface StreamingState {
   sources: ArticleSource[];
   answer: StructuredAnswer | null;
   error: string | null;
+  currentQuestion: string;
 }
 
 export function useStreamingAnswer() {
@@ -19,7 +20,8 @@ export function useStreamingAnswer() {
     streamingDetails: '',
     sources: [],
     answer: null,
-    error: null
+    error: null,
+    currentQuestion: ''
   });
 
   const askQuestion = useCallback(async (question: string) => {
@@ -30,7 +32,8 @@ export function useStreamingAnswer() {
       streamingDetails: '',
       sources: [],
       answer: null,
-      error: null
+      error: null,
+      currentQuestion: question
     });
 
     try {

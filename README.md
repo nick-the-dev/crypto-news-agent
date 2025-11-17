@@ -226,6 +226,72 @@ Health check endpoint
 
 ## Development
 
+### Debug Mode
+
+The application includes a comprehensive debug logging system that provides step-by-step visibility into every operation. This is essential for:
+- Tracking application flow and ensuring no stages are skipped
+- Identifying silent errors or failures
+- Understanding performance bottlenecks
+- Debugging complex multi-step processes
+
+**Enable Debug Mode:**
+
+Add to `backend/.env`:
+```bash
+DEBUG=true
+```
+
+Or run with:
+```bash
+DEBUG=true npm run dev
+```
+
+**What Debug Mode Shows:**
+
+When enabled, every operation logs:
+1. **STARTED phase** - What the operation is about to do, with context
+2. **FINISHED phase** - The result of the operation, with metrics
+
+**Example Debug Output:**
+
+```
+================================================================================
+[DEBUG] 2025-11-16T22:15:00.000Z
+[RSS_FETCH_ALL] STARTED: Fetching from all RSS sources
+Context: {
+  "sourceCount": 3,
+  "sources": ["DL News", "The Defiant", "Cointelegraph"]
+}
+================================================================================
+
+[DEBUG] 2025-11-16T22:15:00.123Z [RSS_FETCH_ALL] INFO: Source succeeded: DL News
+Data: { "articleCount": 25 }
+
+--------------------------------------------------------------------------------
+[DEBUG] 2025-11-16T22:15:02.456Z
+[RSS_FETCH_ALL] FINISHED: Fetching from all RSS sources
+Duration: 2456ms
+Result: {
+  "totalArticles": 73,
+  "successfulSources": 3,
+  "failedSources": 0
+}
+--------------------------------------------------------------------------------
+```
+
+**Debug Categories:**
+
+- `ASK_REQUEST` - User question handling
+- `INGESTION` - News ingestion pipeline
+- `RSS_FETCH_*` - RSS feed fetching
+- `PROCESS_ARTICLE` - Article processing
+- `EMBEDDING_GENERATION` - AI embedding generation
+- `VECTOR_SEARCH` - Semantic search queries
+- `AI_STREAMING` - LLM response streaming
+- `CITATION_VALIDATION` - Citation verification
+
+Debug mode has minimal performance impact and can be safely used in development.
+
 ### Backend Commands
 
 ```bash
@@ -234,6 +300,9 @@ npm run build        # Build for production
 npm run start        # Start production server
 npm test             # Run tests
 npm run prisma:migrate  # Run database migrations
+
+# With debug mode
+DEBUG=true npm run dev
 ```
 
 ### Frontend Commands

@@ -7,9 +7,10 @@ interface Props {
   answer: StructuredAnswerType;
   streamingTldr?: string;
   streamingDetails?: string;
+  question?: string;
 }
 
-export function StructuredAnswer({ answer, streamingTldr, streamingDetails }: Props) {
+export function StructuredAnswer({ answer, streamingTldr, streamingDetails, question }: Props) {
 
   const handleCitationClick = (num: number) => {
     const element = document.getElementById(`source-${num}`);
@@ -42,6 +43,20 @@ export function StructuredAnswer({ answer, streamingTldr, streamingDetails }: Pr
 
   return (
     <div className="w-full max-w-4xl mx-auto space-y-6">
+      {/* Question Display */}
+      {question && (
+        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-4">
+          <div className="flex items-start gap-3">
+            <span className="text-2xl flex-shrink-0">❓</span>
+            <div>
+              <h3 className="text-sm font-semibold text-gray-600 mb-1">Your Question</h3>
+              <p className="text-gray-900 text-lg">{question}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Answer Display */}
       <div className="bg-white border border-gray-200 rounded-lg p-6">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
