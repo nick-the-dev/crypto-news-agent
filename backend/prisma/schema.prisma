@@ -43,7 +43,7 @@ model ArticleEmbedding {
   id        String       @id @default(uuid())
   chunkId   String       @unique
   chunk     ArticleChunk @relation(fields: [chunkId], references: [id], onDelete: Cascade)
-  embedding Unsupported("vector(1024)")
+  embedding Unsupported("vector(4096)")
   createdAt DateTime     @default(now())
 }
 

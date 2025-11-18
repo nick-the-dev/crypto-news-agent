@@ -1,7 +1,7 @@
 import OpenAI from 'openai';
 import { RawArticle } from '../types';
 
-const EMBEDDING_MODEL = 'qwen/qwen3-embedding-0.6b';
+const EMBEDDING_MODEL = 'qwen/qwen3-embedding-8b';
 const LLM_MODEL = 'google/gemini-2.5-flash';
 
 /**
