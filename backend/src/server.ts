@@ -14,8 +14,12 @@ const app = express();
 const PORT = parseInt(process.env.PORT || '3001', 10);
 
 // Trust proxy - required when running behind reverse proxy (nginx, Easypanel, etc.)
-// This allows express-rate-limit to correctly identify users via X-Forwarded-For
-app.set('trust proxy', true);
+// Using '1' means we trust only the first proxy (the direct one), not arbitrary proxies
+// This prevents IP spoofing attacks while allowing rate limiting to work correctly
+// In development (no proxy), this setting has no effect
+if (process.env.NODE_ENV === 'production') {
+  app.set('trust proxy', 1);
+}
 
 app.use(express.json());
 app.use(corsMiddleware);
