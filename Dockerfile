@@ -16,6 +16,8 @@ COPY backend/package*.json ./
 COPY backend/prisma ./prisma/
 RUN npm ci
 COPY backend/ ./
+# Bypass Prisma checksum verification in case of transient server errors
+ENV PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING=1
 RUN npx prisma generate
 RUN npm run build
 
