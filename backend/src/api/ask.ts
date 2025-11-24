@@ -1,15 +1,15 @@
 import { Request, Response } from 'express';
-import { OpenRouterAgent } from '../agents/openrouter-agent';
+import { createOpenRouterLLM, createOpenRouterEmbeddings } from '../agents/llm';
+import { createSearchNewsTool } from '../tools/searchNews';
+import { createValidateCitationsTool } from '../tools/validateCitations';
+import { createRetrievalAgent } from '../agents/retrieval';
+import { createValidationAgent } from '../agents/validation';
+import { createSupervisor } from '../agents/supervisor';
 import { ingestionQueue } from '../ingestion';
-import { retrieveRelevantArticles } from '../search/retriever';
-import { buildContext } from '../search/context-builder';
-import { buildSystemPrompt } from '../prompts/system-prompt';
-import { buildUserPrompt } from '../prompts/user-prompt';
-import { parseStructuredResponse, validateCitations } from '../utils/response-parser';
-import { extractTimeRange } from '../utils/time';
 import { ModerationService } from '../utils/moderation';
 import { prisma } from '../utils/db';
 import { debugLogger } from '../utils/debug-logger';
+import { OpenRouterAgent } from '../agents/openrouter-agent';
 
 export async function handleAsk(req: Request, res: Response): Promise<void> {
   const requestStepId = debugLogger.stepStart('ASK_REQUEST', 'Handling /ask request', {
@@ -72,10 +72,11 @@ export async function handleAsk(req: Request, res: Response): Promise<void> {
 
   try {
     const startTime = Date.now();
-    const agent = new OpenRouterAgent(process.env.OPENROUTER_API_KEY!);
 
+    // Run ingestion (still using old agent for now)
+    const oldAgent = new OpenRouterAgent(process.env.OPENROUTER_API_KEY!);
     debugLogger.info('ASK_REQUEST', 'Starting ingestion process', {});
-    const ingestStats = await ingestionQueue.ingest(agent);
+    const ingestStats = await ingestionQueue.ingest(oldAgent);
     debugLogger.info('ASK_REQUEST', 'Ingestion completed', ingestStats);
 
     const countStepId = debugLogger.stepStart('DB_COUNT', 'Counting total articles in database', {});
@@ -89,52 +90,57 @@ export async function handleAsk(req: Request, res: Response): Promise<void> {
       newArticlesProcessed: ingestStats.processed
     })}\n\n`);
 
-    const timeRangeStepId = debugLogger.stepStart('TIME_EXTRACTION', 'Extracting time range from question', {
-      question
-    });
-    const daysBack = extractTimeRange(question);
-    debugLogger.stepFinish(timeRangeStepId, { daysBack });
+    res.write(`event: status\n`);
+    res.write(`data: ${JSON.stringify({ message: "Analyzing crypto news..." })}\n\n`);
 
-    const searchStepId = debugLogger.stepStart('SEARCH', 'Retrieving relevant articles', {
-      daysBack,
-      question
-    });
-    const searchResults = await retrieveRelevantArticles(question, daysBack, agent);
-    debugLogger.stepFinish(searchStepId, {
-      resultCount: searchResults.length
+    // Initialize LangChain + LangFuse
+    // LangFuse will auto-trace via environment variables
+
+    const llm = createOpenRouterLLM();
+    const embeddings = createOpenRouterEmbeddings();
+
+    // Create tools
+    const searchTool = createSearchNewsTool(embeddings);
+    const validateTool = createValidateCitationsTool();
+
+    // Create agents with LangFuse callbacks
+    const retrievalAgent = await createRetrievalAgent(llm, searchTool);
+    const validationAgent = await createValidationAgent(llm, validateTool);
+
+    // Create supervisor
+    const supervisor = createSupervisor(retrievalAgent, validationAgent);
+
+    debugLogger.info('ASK_REQUEST', 'Executing multi-agent supervisor', {
+      question,
     });
 
-    if (searchResults.length === 0) {
-      debugLogger.warn('SEARCH', 'No relevant articles found for question', {
-        question
-      });
-      res.write(`event: structured\n`);
-      res.write(`data: ${JSON.stringify({
-        tldr: "No relevant recent crypto news found on this topic.",
-        details: {
-          content: "I don't have recent information about this in my news database. This could mean the topic is very new, niche, or not covered by the sources I monitor (DL News, The Defiant, Cointelegraph). Try rephrasing your question or asking about a different crypto topic.",
-          citations: []
-        },
-        confidence: 10
-      })}\n\n`);
-      res.write(`event: done\n`);
-      res.write(`data: ${JSON.stringify({ processingTime: Date.now() - startTime })}\n\n`);
-      res.end();
-      debugLogger.stepFinish(requestStepId, {
-        noResults: true,
-        processingTime: Date.now() - startTime
-      });
+    // Execute supervisor
+    const result = await supervisor(question);
+
+    if (streamAborted) {
+      debugLogger.warn('ASK_REQUEST', 'Stream aborted before completion', {});
       return;
     }
 
-    const sources = searchResults.map((r, i) => ({
-      number: i + 1,
-      title: r.article.title,
-      source: r.article.source,
-      url: r.article.url,
-      publishedAt: r.article.publishedAt.toISOString(),
-      relevance: r.relevance
-    }));
+    // Send sources - transform to frontend format
+    const sources = result.sources.map((s, i) => {
+      let sourceName = 'unknown';
+      try {
+        if (s.url && s.url !== 'None' && s.url.startsWith('http')) {
+          sourceName = new URL(s.url).hostname.replace('www.', '').split('.')[0];
+        }
+      } catch {
+        // Invalid URL, keep default
+      }
+      return {
+        number: i + 1,
+        title: s.title,
+        source: sourceName,
+        url: s.url,
+        publishedAt: s.publishedAt,
+        relevance: s.relevance
+      };
+    });
 
     debugLogger.info('ASK_REQUEST', 'Sending sources to client', {
       sourceCount: sources.length
@@ -143,123 +149,59 @@ export async function handleAsk(req: Request, res: Response): Promise<void> {
     res.write(`event: sources\n`);
     res.write(`data: ${JSON.stringify(sources)}\n\n`);
 
-    const contextStepId = debugLogger.stepStart('CONTEXT_BUILD', 'Building context from search results', {
-      resultCount: searchResults.length
-    });
-    const context = buildContext(searchResults);
-    debugLogger.stepFinish(contextStepId, {
-      contextLength: context.length
-    });
-
-    const promptStepId = debugLogger.stepStart('PROMPT_BUILD', 'Building system and user prompts', {});
-    const systemPrompt = buildSystemPrompt(new Date());
-    const userPrompt = buildUserPrompt(context, question);
-    debugLogger.stepFinish(promptStepId, {
-      systemPromptLength: systemPrompt.length,
-      userPromptLength: userPrompt.length,
-      systemPrompt: systemPrompt,
-      userPrompt: userPrompt
-    });
-
+    // Send answer (simulating streaming for UX)
     res.write(`event: status\n`);
     res.write(`data: ${JSON.stringify({ message: "Generating answer..." })}\n\n`);
 
-    let fullResponse = '';
-    let currentSection: 'none' | 'tldr' | 'details' | 'confidence' = 'none';
-    let sectionContent = '';
+    // Transform [Source N] to [N] format for frontend streaming
+    const streamingAnswer = result.answer.replace(/\[Source (\d+)\]/g, '[$1]');
 
-    const streamStepId = debugLogger.stepStart('AI_STREAMING', 'Streaming AI response', {
-      systemPromptLength: systemPrompt.length,
-      userPromptLength: userPrompt.length
-    });
+    // Split into TL;DR (first sentence) and details (full content)
+    const firstSentenceEnd = streamingAnswer.indexOf('.') + 1;
+    const tldrText = streamingAnswer.substring(0, firstSentenceEnd).trim();
+    const detailsText = streamingAnswer;
 
-    let tokenCount = 0;
-    for await (const token of agent.streamAnswer(systemPrompt, userPrompt)) {
-      if (streamAborted) {
-        debugLogger.warn('AI_STREAMING', 'Stream aborted by client', {
-          tokensStreamed: tokenCount,
-          responseLength: fullResponse.length
-        });
-        break;
-      }
-
-      tokenCount++;
-      fullResponse += token;
-
-      const lowerToken = token.toLowerCase();
-      if (lowerToken.includes('## tl;dr') || lowerToken.includes('##tl;dr')) {
-        if (currentSection === 'tldr' && sectionContent) {
-          res.write(`event: tldr\n`);
-          res.write(`data: ${JSON.stringify({ content: sectionContent.trim() })}\n\n`);
-        }
-        currentSection = 'tldr';
-        sectionContent = '';
-      } else if (lowerToken.includes('## details')) {
-        if (currentSection === 'tldr' && sectionContent) {
-          res.write(`event: tldr\n`);
-          res.write(`data: ${JSON.stringify({ content: sectionContent.trim() })}\n\n`);
-        }
-        currentSection = 'details';
-        sectionContent = '';
-      } else if (lowerToken.includes('## confidence')) {
-        if (currentSection === 'details' && sectionContent) {
-          res.write(`event: details\n`);
-          res.write(`data: ${JSON.stringify({ content: sectionContent.trim() })}\n\n`);
-        }
-        currentSection = 'confidence';
-        sectionContent = '';
-      } else {
-        if (currentSection === 'tldr' || currentSection === 'details') {
-          sectionContent += token;
-          if (currentSection === 'tldr') {
-            res.write(`event: tldr\n`);
-            res.write(`data: ${JSON.stringify({ content: sectionContent.trim() })}\n\n`);
-          } else if (currentSection === 'details') {
-            res.write(`event: details\n`);
-            res.write(`data: ${JSON.stringify({ content: sectionContent.trim() })}\n\n`);
-          }
-        }
-      }
+    // Stream TL;DR first
+    const tldrWords = tldrText.split(' ');
+    let tldrContent = '';
+    for (let i = 0; i < tldrWords.length; i++) {
+      if (streamAborted) break;
+      tldrContent += (i > 0 ? ' ' : '') + tldrWords[i];
+      res.write(`event: tldr\n`);
+      res.write(`data: ${JSON.stringify({ content: tldrContent })}\n\n`);
+      await new Promise(resolve => setTimeout(resolve, 25));
     }
 
-    debugLogger.stepFinish(streamStepId, {
-      tokensStreamed: tokenCount,
-      responseLength: fullResponse.length
-    });
-
-    const parseStepId = debugLogger.stepStart('RESPONSE_PARSE', 'Parsing structured response', {
-      responseLength: fullResponse.length
-    });
-    const parsed = parseStructuredResponse(fullResponse);
-    debugLogger.stepFinish(parseStepId, {
-      hasTldr: !!parsed.tldr,
-      hasDetails: !!parsed.details,
-      confidence: parsed.confidence
-    });
-
-    const validationStepId = debugLogger.stepStart('CITATION_VALIDATION', 'Validating citations', {
-      citationCount: parsed.details?.citations?.length || 0,
-      maxCitations: searchResults.length
-    });
-    const validation = validateCitations(parsed, searchResults.length);
-    debugLogger.stepFinish(validationStepId, {
-      valid: validation.valid,
-      issueCount: validation.issues?.length || 0,
-      issues: validation.issues
-    });
-
-    if (!validation.valid) {
-      debugLogger.warn('CITATION_VALIDATION', 'Citation validation issues found', {
-        issues: validation.issues
-      });
-      console.warn('Citation issues:', validation.issues);
+    // Stream details (full answer)
+    const detailsWords = detailsText.split(' ');
+    let detailsContent = '';
+    for (let i = 0; i < detailsWords.length; i++) {
+      if (streamAborted) break;
+      detailsContent += (i > 0 ? ' ' : '') + detailsWords[i];
+      res.write(`event: details\n`);
+      res.write(`data: ${JSON.stringify({ content: detailsContent })}\n\n`);
+      await new Promise(resolve => setTimeout(resolve, 20));
     }
 
+    // Extract citations from answer for frontend format
+    const citationMatches = streamingAnswer.match(/\[(\d+)\]/g) || [];
+    const citations = citationMatches.map(m => parseInt(m.match(/\d+/)?.[0] || '0'));
+
+    // Send structured response in frontend-expected format
     res.write(`event: structured\n`);
     res.write(`data: ${JSON.stringify({
-      tldr: parsed.tldr,
-      details: parsed.details,
-      confidence: parsed.confidence
+      tldr: streamingAnswer.split('.')[0] + '.',  // First sentence as TL;DR
+      details: {
+        content: streamingAnswer,
+        citations: [...new Set(citations)]  // Unique citations
+      },
+      confidence: result.confidence,
+      sources: sources,
+      metadata: {
+        queryTimestamp: result.metadata.timestamp,
+        articlesAnalyzed: sources.length,
+        processingTime: Date.now() - startTime
+      }
     })}\n\n`);
 
     const processingTime = Date.now() - startTime;
@@ -270,10 +212,13 @@ export async function handleAsk(req: Request, res: Response): Promise<void> {
 
     debugLogger.stepFinish(requestStepId, {
       processingTime,
-      articlesRetrieved: searchResults.length,
-      confidence: parsed.confidence
+      sourcesCount: result.sources.length,
+      confidence: result.confidence,
+      validated: result.validated,
+      retriesUsed: result.metadata.retriesUsed,
     });
 
+    // Log query to database
     const logStepId = debugLogger.stepStart('QUERY_LOG', 'Logging query to database', {
       question,
       processingTime
@@ -281,8 +226,8 @@ export async function handleAsk(req: Request, res: Response): Promise<void> {
     prisma.queryLog.create({
       data: {
         question,
-        articlesRetrieved: searchResults.length,
-        confidence: parsed.confidence,
+        articlesRetrieved: result.sources.length,
+        confidence: result.confidence,
         processingTimeMs: processingTime
       }
     }).then(() => {
