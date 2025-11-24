@@ -8,7 +8,9 @@ import { disconnectPrisma } from './utils/db';
 import jobStatusRouter from './api/job-status';
 import { startJobScheduler, gracefulShutdown } from './jobs/scheduler';
 
+// Load .env from backend folder first, then override with root .env
 dotenv.config();
+dotenv.config({ path: path.resolve(__dirname, '../../.env'), override: true });
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3001', 10);

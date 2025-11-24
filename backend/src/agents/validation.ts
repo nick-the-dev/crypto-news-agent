@@ -1,6 +1,7 @@
 import { ChatPromptTemplate } from '@langchain/core/prompts';
 import { ChatOpenAI } from '@langchain/openai';
 import { DynamicStructuredTool } from '@langchain/core/tools';
+import { CallbackHandler } from '@langfuse/langchain';
 import { ValidationOutputSchema, ValidationOutput, RetrievalOutput } from '../schemas';
 import { debugLogger } from '../utils/debug-logger';
 
@@ -37,7 +38,8 @@ Return your validation assessment.`;
  */
 export async function createValidationAgent(
   llm: ChatOpenAI,
-  validateTool: DynamicStructuredTool
+  validateTool: DynamicStructuredTool,
+  langfuseHandler?: CallbackHandler
 ): Promise<(retrievalOutput: RetrievalOutput) => Promise<ValidationOutput>> {
   // Bind tool to LLM
   const llmWithTools = llm.bindTools([validateTool]);
@@ -89,7 +91,8 @@ Scoring guidelines:
 - Multiple issues = 50-69
 - Significant problems = below 50`;
 
-      const assessment = await validationLLM.invoke(assessmentPrompt);
+      const callbacks = langfuseHandler ? [langfuseHandler] : [];
+      const assessment = await validationLLM.invoke(assessmentPrompt, { callbacks });
 
       const output: ValidationOutput = {
         confidence: assessment.confidence,

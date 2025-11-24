@@ -1,16 +1,32 @@
 import { ChatOpenAI } from '@langchain/openai';
 import { Embeddings } from '@langchain/core/embeddings';
+import { CallbackHandler } from '@langfuse/langchain';
 
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 const LLM_MODEL = 'google/gemini-2.5-flash';
 const EMBEDDING_MODEL = 'qwen/qwen3-embedding-8b';
 
 /**
- * Note: LangFuse tracing is automatically enabled via environment variables:
+ * Create a LangFuse callback handler for tracing LLM calls
+ * Requires environment variables:
  * - LANGFUSE_PUBLIC_KEY
  * - LANGFUSE_SECRET_KEY
- * - LANGFUSE_BASE_URL
+ * - LANGFUSE_BASE_URL (optional, defaults to cloud)
  */
+export function createLangfuseHandler(options?: {
+  sessionId?: string;
+  userId?: string;
+  tags?: string[];
+}): CallbackHandler {
+  return new CallbackHandler({
+    publicKey: process.env.LANGFUSE_PUBLIC_KEY,
+    secretKey: process.env.LANGFUSE_SECRET_KEY,
+    baseUrl: process.env.LANGFUSE_BASE_URL,
+    sessionId: options?.sessionId,
+    userId: options?.userId,
+    tags: options?.tags || ['crypto-news-agent'],
+  });
+}
 
 /**
  * Create ChatOpenAI instance configured for OpenRouter with LangFuse tracing

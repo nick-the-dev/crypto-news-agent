@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { createOpenRouterLLM, createOpenRouterEmbeddings } from '../agents/llm';
+import { createOpenRouterLLM, createOpenRouterEmbeddings, createLangfuseHandler } from '../agents/llm';
 import { createSearchNewsTool } from '../tools/searchNews';
 import { createValidateCitationsTool } from '../tools/validateCitations';
 import { createRetrievalAgent } from '../agents/retrieval';
@@ -94,18 +94,22 @@ export async function handleAsk(req: Request, res: Response): Promise<void> {
     res.write(`data: ${JSON.stringify({ message: "Analyzing crypto news..." })}\n\n`);
 
     // Initialize LangChain + LangFuse
-    // LangFuse will auto-trace via environment variables
-
     const llm = createOpenRouterLLM();
     const embeddings = createOpenRouterEmbeddings();
+
+    // Create LangFuse handler for tracing (requires LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY env vars)
+    const langfuseHandler = createLangfuseHandler({
+      sessionId: `ask-${Date.now()}`,
+      tags: ['crypto-news-agent', 'ask-endpoint'],
+    });
 
     // Create tools
     const searchTool = createSearchNewsTool(embeddings);
     const validateTool = createValidateCitationsTool();
 
     // Create agents with LangFuse callbacks
-    const retrievalAgent = await createRetrievalAgent(llm, searchTool);
-    const validationAgent = await createValidationAgent(llm, validateTool);
+    const retrievalAgent = await createRetrievalAgent(llm, searchTool, langfuseHandler);
+    const validationAgent = await createValidationAgent(llm, validateTool, langfuseHandler);
 
     // Create supervisor
     const supervisor = createSupervisor(retrievalAgent, validationAgent);

@@ -1,6 +1,7 @@
 import { ChatPromptTemplate } from '@langchain/core/prompts';
 import { ChatOpenAI } from '@langchain/openai';
 import { DynamicStructuredTool } from '@langchain/core/tools';
+import { CallbackHandler } from '@langfuse/langchain';
 import { RetrievalOutputSchema, RetrievalOutput } from '../schemas';
 import { debugLogger } from '../utils/debug-logger';
 
@@ -30,7 +31,8 @@ Please search for relevant crypto news and provide a comprehensive summary with 
  */
 export async function createRetrievalAgent(
   llm: ChatOpenAI,
-  searchTool: DynamicStructuredTool
+  searchTool: DynamicStructuredTool,
+  langfuseHandler?: CallbackHandler
 ): Promise<(question: string) => Promise<RetrievalOutput>> {
   // Bind tool to LLM
   const llmWithTools = llm.bindTools([searchTool]);
@@ -50,11 +52,13 @@ export async function createRetrievalAgent(
       const currentDate = new Date().toISOString().split('T')[0];
 
       // Step 1: Invoke LLM with tools
+      const callbacks = langfuseHandler ? [langfuseHandler] : [];
       const response = await llmWithTools.invoke(
         await prompt.format({
           question,
           currentDate,
-        })
+        }),
+        { callbacks }
       );
 
       debugLogger.info('AGENT_RETRIEVAL', 'LLM responded', {
@@ -109,7 +113,7 @@ Return your response as JSON with:
 - sources: Array of source objects
 - citationCount: Number of citations used`;
 
-      const summaryResponse = await summaryLLM.invoke(summaryPrompt);
+      const summaryResponse = await summaryLLM.invoke(summaryPrompt, { callbacks });
 
       // Map search results to Source schema format
       const sources = searchResults.articles.map((a: any) => ({
