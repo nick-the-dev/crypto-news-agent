@@ -103,6 +103,12 @@ export async function handleAsk(req: Request, res: Response): Promise<void> {
       tags: ['crypto-news-agent', 'ask-endpoint'],
     });
 
+    debugLogger.info('ASK_REQUEST', 'LangFuse handler initialized', {
+      hasPublicKey: !!process.env.LANGFUSE_PUBLIC_KEY,
+      hasSecretKey: !!process.env.LANGFUSE_SECRET_KEY,
+      baseUrl: process.env.LANGFUSE_BASE_URL || 'default',
+    });
+
     // Create tools
     const searchTool = createSearchNewsTool(embeddings);
     const validateTool = createValidateCitationsTool();
@@ -213,6 +219,9 @@ export async function handleAsk(req: Request, res: Response): Promise<void> {
     res.write(`event: done\n`);
     res.write(`data: ${JSON.stringify({ processingTime })}\n\n`);
     res.end();
+
+    // Flush LangFuse traces to ensure they're sent
+    await langfuseHandler.flushAsync();
 
     debugLogger.stepFinish(requestStepId, {
       processingTime,
