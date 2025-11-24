@@ -10,9 +10,8 @@ import { NodeSDK } from '@opentelemetry/sdk-node';
 import { LangfuseSpanProcessor } from '@langfuse/otel';
 import { configureGlobalLogger, LogLevel } from '@langfuse/core';
 
-// Set LangFuse log level - use DEBUG for troubleshooting span exports
-// configureGlobalLogger({ level: LogLevel.DEBUG });
-configureGlobalLogger({ level: LogLevel.INFO });
+// Set LangFuse log level - DEBUG for troubleshooting span exports
+configureGlobalLogger({ level: LogLevel.DEBUG });
 
 // Initialize OpenTelemetry with LangFuse span processor
 // This must be imported before any other modules that use LangChain

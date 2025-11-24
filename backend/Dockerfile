@@ -5,6 +5,8 @@ COPY prisma ./prisma/
 RUN npm ci
 COPY . .
 RUN npx prisma generate
+# Increase Node.js memory limit for TypeScript compilation
+ENV NODE_OPTIONS="--max-old-space-size=4096"
 RUN npm run build
 
 FROM node:20-alpine
