@@ -220,9 +220,6 @@ export async function handleAsk(req: Request, res: Response): Promise<void> {
     res.write(`data: ${JSON.stringify({ processingTime })}\n\n`);
     res.end();
 
-    // Flush LangFuse traces to ensure they're sent
-    await langfuseHandler.flushAsync();
-
     debugLogger.stepFinish(requestStepId, {
       processingTime,
       sourcesCount: result.sources.length,

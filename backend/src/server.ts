@@ -1,3 +1,4 @@
+import './instrumentation'; // Must be first - initializes OpenTelemetry + LangFuse
 import express from 'express';
 import path from 'path';
 import dotenv from 'dotenv';
