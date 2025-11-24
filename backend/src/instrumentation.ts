@@ -8,11 +8,22 @@ dotenv.config({ path: path.resolve(__dirname, '../../.env'), override: true });
 
 import { NodeSDK } from '@opentelemetry/sdk-node';
 import { LangfuseSpanProcessor } from '@langfuse/otel';
+import { configureGlobalLogger, LogLevel } from '@langfuse/core';
+
+// Set LangFuse log level - use DEBUG for troubleshooting span exports
+// configureGlobalLogger({ level: LogLevel.DEBUG });
+configureGlobalLogger({ level: LogLevel.INFO });
 
 // Initialize OpenTelemetry with LangFuse span processor
 // This must be imported before any other modules that use LangChain
+// Configure explicit flush settings to ensure spans are sent promptly
+const spanProcessor = new LangfuseSpanProcessor({
+  flushAt: 1, // Flush after every span for debugging
+  flushIntervalSeconds: 1, // Flush every second
+});
+
 const sdk = new NodeSDK({
-  spanProcessors: [new LangfuseSpanProcessor()],
+  spanProcessors: [spanProcessor],
 });
 
 sdk.start();
