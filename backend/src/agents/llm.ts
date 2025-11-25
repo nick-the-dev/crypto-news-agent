@@ -7,23 +7,53 @@ const LLM_MODEL = 'google/gemini-2.5-flash';
 const EMBEDDING_MODEL = 'qwen/qwen3-embedding-8b';
 
 /**
- * Create a LangFuse callback handler for tracing LLM calls
- * Reads API keys from environment variables:
- * - LANGFUSE_PUBLIC_KEY
- * - LANGFUSE_SECRET_KEY
- * - LANGFUSE_BASE_URL (optional, defaults to cloud)
+ * Model pricing per million tokens (from OpenRouter)
+ */
+export const MODEL_PRICING = {
+  'google/gemini-2.5-flash': {
+    inputCostPerMillion: 0.30,
+    outputCostPerMillion: 2.50,
+  },
+  'qwen/qwen3-embedding-8b': {
+    inputCostPerMillion: 0.01,
+    outputCostPerMillion: 0,
+  },
+} as const;
+
+/**
+ * Calculate cost for token usage
+ */
+export function calculateCost(
+  model: keyof typeof MODEL_PRICING,
+  inputTokens: number,
+  outputTokens: number
+): number {
+  const pricing = MODEL_PRICING[model];
+  if (!pricing) return 0;
+
+  const inputCost = (inputTokens / 1_000_000) * pricing.inputCostPerMillion;
+  const outputCost = (outputTokens / 1_000_000) * pricing.outputCostPerMillion;
+  return inputCost + outputCost;
+}
+
+/**
+ * Create a LangFuse callback handler for tracing LLM calls.
+ * Auto-links to any active observation context from @langfuse/tracing.
+ * Credentials are read from env vars: LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LANGFUSE_HOST
  */
 export function createLangfuseHandler(options?: {
   sessionId?: string;
   userId?: string;
   tags?: string[];
 }): CallbackHandler {
-  // CallbackHandler reads credentials from env vars automatically
-  // Only pass metadata like sessionId, userId, and tags
   return new CallbackHandler({
     sessionId: options?.sessionId,
     userId: options?.userId,
     tags: options?.tags || ['crypto-news-agent'],
+    traceMetadata: {
+      model: LLM_MODEL,
+      modelPricing: MODEL_PRICING[LLM_MODEL as keyof typeof MODEL_PRICING],
+    },
   });
 }
 

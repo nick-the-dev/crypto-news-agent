@@ -5,26 +5,20 @@ import { CallbackHandler } from '@langfuse/langchain';
 import { RetrievalOutputSchema, RetrievalOutput } from '../schemas';
 import { debugLogger } from '../utils/debug-logger';
 
-const RETRIEVAL_SYSTEM_PROMPT = `You are a crypto news retrieval specialist. Your job is to:
-1. Use the search_crypto_news tool to find relevant crypto news articles
-2. Analyze the articles and create a comprehensive summary
-3. Cite sources using the format [Source N] where N is the sourceNumber from the search results
-4. Focus on factual information only
+const RETRIEVAL_SYSTEM_PROMPT = `You are a crypto news specialist. Your job is to search for and cite relevant crypto news articles.
 
-Current date: {currentDate}
+IMPORTANT: You MUST call the search_crypto_news tool with the user's question as the "query" parameter. Example:
+- User asks "What's happening with Bitcoin?" → Call search_crypto_news(query: "What's happening with Bitcoin?")
 
-IMPORTANT CITATION RULES:
-- Every factual claim MUST be cited with [Source N]
-- Use the exact sourceNumber from the search results
-- Multiple claims from the same source should repeat the citation
-- Do NOT make up or infer information not in the sources
+Date: {currentDate}
 
-Example:
-Bitcoin reached $45,000 today [Source 1], marking a 10% increase [Source 2].`;
+Rules:
+- Always call search_crypto_news with the user's question as the query
+- Cite every fact with [Source N]
+- Only use info from sources
+- Never infer or fabricate`;
 
-const RETRIEVAL_USER_PROMPT = `Question: {question}
-
-Please search for relevant crypto news and provide a comprehensive summary with proper citations.`;
+const RETRIEVAL_USER_PROMPT = `{question}`;
 
 /**
  * Create retrieval agent that searches for news and generates summaries with citations
@@ -34,9 +28,6 @@ export async function createRetrievalAgent(
   searchTool: DynamicStructuredTool,
   langfuseHandler?: CallbackHandler
 ): Promise<(question: string) => Promise<RetrievalOutput>> {
-  // Bind tool to LLM
-  const llmWithTools = llm.bindTools([searchTool]);
-
   // Create prompt template
   const prompt = ChatPromptTemplate.fromMessages([
     ['system', RETRIEVAL_SYSTEM_PROMPT],
@@ -50,15 +41,21 @@ export async function createRetrievalAgent(
 
     try {
       const currentDate = new Date().toISOString().split('T')[0];
-
-      // Step 1: Invoke LLM with tools
       const callbacks = langfuseHandler ? [langfuseHandler] : [];
+
+      // Bind tools to LLM
+      const llmWithTools = llm.bindTools([searchTool]);
+
+      // Step 1: Invoke LLM with tools - pass callbacks at invoke time
       const response = await llmWithTools.invoke(
         await prompt.format({
           question,
           currentDate,
         }),
-        { callbacks }
+        {
+          callbacks,
+          runName: 'Retrieval: Search News',
+        }
       );
 
       debugLogger.info('AGENT_RETRIEVAL', 'LLM responded', {
@@ -92,28 +89,14 @@ export async function createRetrievalAgent(
       // Step 3: Generate summary with structured output
       const summaryLLM = llm.withStructuredOutput(RetrievalOutputSchema);
 
-      const summaryPrompt = `Based on the search results below, create a comprehensive summary with proper citations.
+      const summaryPrompt = `Answer "${question}" in 2-3 sentences using only these sources. Cite every fact with [Source N].
 
-Search Results:
-${searchResults.articles.map((a: any, i: number) => `
-[Source ${a.sourceNumber}]
-Title: ${a.title}
-Published: ${a.publishedAt}
-Quote: ${a.quote}
-`).join('\n')}
+${searchResults.articles.map((a: any) => `[Source ${a.sourceNumber}] ${a.title} (${a.publishedAt}): ${a.quote}`).join('\n\n')}`;
 
-Create a summary that:
-1. Answers the question: "${question}"
-2. Cites every fact using [Source N] format
-3. Uses information only from the search results
-4. Is 2-3 sentences long
-
-Return your response as JSON with:
-- summary: The summary text with [Source N] citations
-- sources: Array of source objects
-- citationCount: Number of citations used`;
-
-      const summaryResponse = await summaryLLM.invoke(summaryPrompt, { callbacks });
+      const summaryResponse = await summaryLLM.invoke(summaryPrompt, {
+        callbacks,
+        runName: 'Retrieval: Generate Summary',
+      });
 
       // Map search results to Source schema format
       const sources = searchResults.articles.map((a: any) => ({

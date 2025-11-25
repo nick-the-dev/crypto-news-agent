@@ -93,20 +93,19 @@ export async function handleAsk(req: Request, res: Response): Promise<void> {
     res.write(`event: status\n`);
     res.write(`data: ${JSON.stringify({ message: "Analyzing crypto news..." })}\n\n`);
 
-    // Initialize LangChain + LangFuse
+    // Create a readable trace name from the question
+    const questionPreview = question.substring(0, 40).replace(/[^a-zA-Z0-9\s]/g, '').trim();
+    const sessionId = `ask-${Date.now()}`;
+    const traceName = `Crypto News: ${questionPreview}`;
+
+    // Initialize LangChain
     const llm = createOpenRouterLLM();
     const embeddings = createOpenRouterEmbeddings();
 
-    // Create LangFuse handler for tracing (requires LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY env vars)
+    // Create LangFuse handler - auto-links to active observation context
     const langfuseHandler = createLangfuseHandler({
-      sessionId: `ask-${Date.now()}`,
+      sessionId,
       tags: ['crypto-news-agent', 'ask-endpoint'],
-    });
-
-    debugLogger.info('ASK_REQUEST', 'LangFuse handler initialized', {
-      hasPublicKey: !!process.env.LANGFUSE_PUBLIC_KEY,
-      hasSecretKey: !!process.env.LANGFUSE_SECRET_KEY,
-      baseUrl: process.env.LANGFUSE_BASE_URL || 'default',
     });
 
     // Create tools
@@ -122,9 +121,11 @@ export async function handleAsk(req: Request, res: Response): Promise<void> {
 
     debugLogger.info('ASK_REQUEST', 'Executing multi-agent supervisor', {
       question,
+      traceName,
+      sessionId,
     });
 
-    // Execute supervisor
+    // Execute supervisor - LangFuse CallbackHandler tracks each LLM call
     const result = await supervisor(question);
 
     if (streamAborted) {

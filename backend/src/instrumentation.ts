@@ -1,35 +1,32 @@
 import dotenv from 'dotenv';
 import path from 'path';
 
-// Load env vars before initializing OTEL
+// Load env vars before anything else
 dotenv.config();
 dotenv.config({ path: path.resolve(__dirname, '../.env'), override: true });
 dotenv.config({ path: path.resolve(__dirname, '../../.env'), override: true });
 
-import { NodeSDK } from '@opentelemetry/sdk-node';
 import { LangfuseSpanProcessor } from '@langfuse/otel';
-import { configureGlobalLogger, LogLevel } from '@langfuse/core';
+import { NodeSDK } from '@opentelemetry/sdk-node';
 
-// Set LangFuse log level - DEBUG for troubleshooting span exports
-configureGlobalLogger({ level: LogLevel.DEBUG });
-
-// Initialize OpenTelemetry with LangFuse span processor
-// This must be imported before any other modules that use LangChain
-// Configure explicit flush settings to ensure spans are sent promptly
+// Set up OpenTelemetry with LangFuse
 const spanProcessor = new LangfuseSpanProcessor({
-  flushAt: 1, // Flush after every span for debugging
-  flushIntervalSeconds: 1, // Flush every second
+  publicKey: process.env.LANGFUSE_PUBLIC_KEY!,
+  secretKey: process.env.LANGFUSE_SECRET_KEY!,
+  baseUrl: process.env.LANGFUSE_HOST || 'https://cloud.langfuse.com',
+  debug: process.env.DEBUG === 'true',
 });
 
 const sdk = new NodeSDK({
-  spanProcessors: [spanProcessor],
+  spanProcessor,
 });
 
 sdk.start();
 
-console.log('OpenTelemetry + LangFuse instrumentation initialized');
+console.log('LangFuse OTel tracing initialized');
 console.log('LangFuse config:', {
   hasPublicKey: !!process.env.LANGFUSE_PUBLIC_KEY,
   hasSecretKey: !!process.env.LANGFUSE_SECRET_KEY,
-  baseUrl: process.env.LANGFUSE_BASE_URL || 'default',
+  host: process.env.LANGFUSE_HOST || 'https://cloud.langfuse.com',
+  debug: process.env.DEBUG === 'true',
 });
