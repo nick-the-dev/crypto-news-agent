@@ -14,7 +14,6 @@ const spanProcessor = new LangfuseSpanProcessor({
   publicKey: process.env.LANGFUSE_PUBLIC_KEY!,
   secretKey: process.env.LANGFUSE_SECRET_KEY!,
   baseUrl: process.env.LANGFUSE_HOST || 'https://cloud.langfuse.com',
-  debug: process.env.DEBUG === 'true',
 });
 
 const sdk = new NodeSDK({
@@ -28,5 +27,4 @@ console.log('LangFuse config:', {
   hasPublicKey: !!process.env.LANGFUSE_PUBLIC_KEY,
   hasSecretKey: !!process.env.LANGFUSE_SECRET_KEY,
   host: process.env.LANGFUSE_HOST || 'https://cloud.langfuse.com',
-  debug: process.env.DEBUG === 'true',
 });

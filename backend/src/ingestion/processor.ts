@@ -1,14 +1,13 @@
 import { Prisma } from '@prisma/client';
 import { RawArticle } from '../types';
 import { prisma } from '../utils/db';
-import { OpenRouterAgent } from '../agents/openrouter-agent';
+import { generateEmbeddingsBatch, generateSummariesBatch } from '../agents/llm';
 import { chunkArticle } from './chunker';
 import { debugLogger } from '../utils/debug-logger';
 import { processConcurrently, chunkArray } from '../utils/concurrency';
 
 export async function processArticle(
   article: RawArticle,
-  agent: OpenRouterAgent,
   preGeneratedSummary?: string
 ): Promise<void> {
   const stepId = debugLogger.stepStart('PROCESS_ARTICLE', `Processing article: ${article.title}`, {
@@ -22,7 +21,7 @@ export async function processArticle(
     const chunkStepId = debugLogger.stepStart('ARTICLE_CHUNKING', 'Chunking article content', {
       url: article.url
     });
-    const chunkData = await chunkArticle(article, agent, preGeneratedSummary);
+    const chunkData = await chunkArticle(article, preGeneratedSummary);
     debugLogger.stepFinish(chunkStepId, {
       chunkCount: chunkData.length,
       hasSummary: chunkData.some(c => c.isSummary)
@@ -32,7 +31,7 @@ export async function processArticle(
     const embeddingStepId = debugLogger.stepStart('EMBEDDING_GENERATION', 'Generating embeddings for chunks', {
       chunkCount: chunkData.length
     });
-    const embeddings = await agent.generateEmbeddings(
+    const embeddings = await generateEmbeddingsBatch(
       chunkData.map(c => c.content)
     );
     debugLogger.stepFinish(embeddingStepId, {
@@ -116,8 +115,7 @@ export async function processArticle(
 }
 
 export async function processNewArticles(
-  articles: RawArticle[],
-  agent: OpenRouterAgent
+  articles: RawArticle[]
 ): Promise<{ processed: number; errors: string[] }> {
   const stepId = debugLogger.stepStart('PROCESS_NEW_ARTICLES', 'Processing all new articles', {
     articleCount: articles.length
@@ -144,7 +142,7 @@ export async function processNewArticles(
     });
 
     try {
-      const batchSummaries = await agent.generateSummariesBatch(batch);
+      const batchSummaries = await generateSummariesBatch(batch);
       // Merge batch summaries into the main map
       for (const [url, summary] of batchSummaries.entries()) {
         summaryMap.set(url, summary);
@@ -173,7 +171,7 @@ export async function processNewArticles(
     articles,
     async (article) => {
       const summary = summaryMap.get(article.url);
-      await processArticle(article, agent, summary);
+      await processArticle(article, summary);
     },
     { concurrency: CONCURRENCY, label: 'Article Processing' }
   );

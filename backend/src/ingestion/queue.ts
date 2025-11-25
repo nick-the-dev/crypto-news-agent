@@ -2,7 +2,6 @@ import { IngestionStats } from '../types';
 import { fetchAllRSS } from './rss-fetcher';
 import { filterNewArticles } from './filter';
 import { processNewArticles } from './processor';
-import { OpenRouterAgent } from '../agents/openrouter-agent';
 import { RSS_SOURCES } from './sources';
 import { debugLogger } from '../utils/debug-logger';
 
@@ -10,7 +9,7 @@ class IngestionQueue {
   private isIngesting = false;
   private waitingRequests: Array<(result: IngestionStats) => void> = [];
 
-  async ingest(agent: OpenRouterAgent): Promise<IngestionStats> {
+  async ingest(): Promise<IngestionStats> {
     const stepId = debugLogger.stepStart('INGESTION', 'Starting ingestion process', {
       waitingRequests: this.waitingRequests.length,
       isIngesting: this.isIngesting
@@ -48,7 +47,7 @@ class IngestionQueue {
       const processStepId = debugLogger.stepStart('INGESTION_PROCESS', 'Processing new articles', {
         articleCount: newArticles.length
       });
-      const { processed, errors } = await processNewArticles(newArticles, agent);
+      const { processed, errors } = await processNewArticles(newArticles);
       debugLogger.stepFinish(processStepId, {
         processed,
         failed: errors.length,

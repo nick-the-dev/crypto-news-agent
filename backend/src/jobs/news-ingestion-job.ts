@@ -3,7 +3,6 @@
  */
 
 import { ingestionQueue } from '../ingestion';
-import { OpenRouterAgent } from '../agents/openrouter-agent';
 import { metricsTracker, JobMetrics } from './metrics-tracker';
 import { createJobRun, completeJobRun, failJobRun } from './job-status';
 import { debugLogger } from '../utils/debug-logger';
@@ -30,17 +29,14 @@ export async function runNewsIngestionJob(): Promise<void> {
     metricsTracker.recordJobStart();
     jobRunId = await createJobRun();
 
-    // Create AI agent
-    const agent = new OpenRouterAgent(process.env.OPENROUTER_API_KEY!);
-
     // Temporarily disable debug logging for routine background job execution
     const originalDebugMode = process.env.DEBUG;
     if (originalDebugMode) {
       process.env.DEBUG = 'false';
     }
 
-    // Run ingestion pipeline (reuses existing logic)
-    const ingestStats = await ingestionQueue.ingest(agent);
+    // Run ingestion pipeline
+    const ingestStats = await ingestionQueue.ingest();
 
     // Restore debug mode
     if (originalDebugMode) {

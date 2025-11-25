@@ -59,7 +59,7 @@ export async function createRetrievalAgent(
       );
 
       debugLogger.info('AGENT_RETRIEVAL', 'LLM responded', {
-        hasToolCalls: response.additional_kwargs.tool_calls?.length > 0,
+        hasToolCalls: (response.additional_kwargs.tool_calls?.length ?? 0) > 0,
       });
 
       // Step 2: Execute tool calls if any

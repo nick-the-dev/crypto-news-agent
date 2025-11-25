@@ -9,7 +9,6 @@ import { ingestionQueue } from '../ingestion';
 import { ModerationService } from '../utils/moderation';
 import { prisma } from '../utils/db';
 import { debugLogger } from '../utils/debug-logger';
-import { OpenRouterAgent } from '../agents/openrouter-agent';
 
 export async function handleAsk(req: Request, res: Response): Promise<void> {
   const requestStepId = debugLogger.stepStart('ASK_REQUEST', 'Handling /ask request', {
@@ -73,10 +72,9 @@ export async function handleAsk(req: Request, res: Response): Promise<void> {
   try {
     const startTime = Date.now();
 
-    // Run ingestion (still using old agent for now)
-    const oldAgent = new OpenRouterAgent(process.env.OPENROUTER_API_KEY!);
+    // Run ingestion
     debugLogger.info('ASK_REQUEST', 'Starting ingestion process', {});
-    const ingestStats = await ingestionQueue.ingest(oldAgent);
+    const ingestStats = await ingestionQueue.ingest();
     debugLogger.info('ASK_REQUEST', 'Ingestion completed', ingestStats);
 
     const countStepId = debugLogger.stepStart('DB_COUNT', 'Counting total articles in database', {});

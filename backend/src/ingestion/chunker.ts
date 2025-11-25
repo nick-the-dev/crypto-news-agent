@@ -1,5 +1,5 @@
 import { ArticleChunkData, RawArticle } from '../types';
-import { OpenRouterAgent } from '../agents/openrouter-agent';
+import { generateSummary } from '../agents/llm';
 
 const CHUNK_SIZE = 600;
 const OVERLAP_SIZE = 100;
@@ -15,13 +15,12 @@ function wordsToText(words: string[]): string {
 
 export async function chunkArticle(
   article: RawArticle,
-  agent?: OpenRouterAgent,
   preGeneratedSummary?: string
 ): Promise<ArticleChunkData[]> {
   const chunks: ArticleChunkData[] = [];
 
   // Use pre-generated summary if provided, otherwise generate it
-  const summary = preGeneratedSummary || (agent ? await agent.generateSummary(article) : article.content.substring(0, 300) + '...');
+  const summary = preGeneratedSummary || await generateSummary(article);
   chunks.push({
     chunkIndex: 0,
     content: summary,

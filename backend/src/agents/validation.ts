@@ -1,14 +1,8 @@
-import { ChatPromptTemplate } from '@langchain/core/prompts';
 import { ChatOpenAI } from '@langchain/openai';
 import { DynamicStructuredTool } from '@langchain/core/tools';
 import { CallbackHandler } from '@langfuse/langchain';
 import { ValidationOutputSchema, ValidationOutput, RetrievalOutput } from '../schemas';
 import { debugLogger } from '../utils/debug-logger';
-
-const VALIDATION_SYSTEM_PROMPT = `Fact-check crypto news citations. Score: 90-100 (all cited), 70-89 (minor issues), 50-69 (gaps), 0-49 (hallucinations).`;
-
-const VALIDATION_USER_PROMPT = `Validate: {answer}
-Sources available: {sourcesCount}`;
 
 /**
  * Create validation agent that verifies citations and detects hallucinations
@@ -18,12 +12,6 @@ export async function createValidationAgent(
   validateTool: DynamicStructuredTool,
   langfuseHandler?: CallbackHandler
 ): Promise<(retrievalOutput: RetrievalOutput) => Promise<ValidationOutput>> {
-  // Create prompt template
-  const prompt = ChatPromptTemplate.fromMessages([
-    ['system', VALIDATION_SYSTEM_PROMPT],
-    ['human', VALIDATION_USER_PROMPT],
-  ]);
-
   return async (retrievalOutput: RetrievalOutput): Promise<ValidationOutput> => {
     const stepId = debugLogger.stepStart('AGENT_VALIDATION', 'Validation agent executing', {
       sourcesCount: retrievalOutput.sources.length,
