@@ -43,15 +43,15 @@ export async function createRetrievalAgent(
       const currentDate = new Date().toISOString().split('T')[0];
       const callbacks = langfuseHandler ? [langfuseHandler] : [];
 
-      // Bind tools to LLM
-      const llmWithTools = llm.bindTools([searchTool]);
+      // Create a chain that properly propagates callbacks
+      const chain = prompt.pipe(llm.bindTools([searchTool]));
 
-      // Step 1: Invoke LLM with tools - pass callbacks at invoke time
-      const response = await llmWithTools.invoke(
-        await prompt.format({
+      // Step 1: Invoke chain with tools - callbacks propagate through pipe
+      const response = await chain.invoke(
+        {
           question,
           currentDate,
-        }),
+        },
         {
           callbacks,
           runName: 'Retrieval: Search News',
