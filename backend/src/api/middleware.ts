@@ -17,8 +17,6 @@ export const rateLimiter = rateLimit({
   message: { error: 'Too many requests, please try again later.' },
   standardHeaders: true,
   legacyHeaders: false
-  // Note: Trust proxy is configured in server.ts via app.set('trust proxy', true)
-  // express-rate-limit v7+ automatically uses the Express app's trust proxy setting
 });
 
 export function errorHandler(
