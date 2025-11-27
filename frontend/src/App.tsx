@@ -10,6 +10,7 @@ function AppLayout() {
       <main className="flex-1 flex flex-col overflow-hidden">
         <Routes>
           <Route path="/" element={<ChatPage />} />
+          <Route path="/chat" element={<ChatPage />} />
           <Route path="/chat/:threadId" element={<ChatPage />} />
         </Routes>
       </main>
