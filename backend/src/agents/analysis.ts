@@ -232,32 +232,38 @@ Sentiment Distribution:
 - Bearish: {bearishPercent}%
 - Neutral: {neutralPercent}%
 
-Top Sources (cite these using [Source N] format):
+=== CITABLE SOURCES (use [Source N] format to cite these) ===
 {sourcesForCitation}
 
-Top Article Insights:
+=== BACKGROUND CONTEXT (for your reference only, DO NOT copy this format) ===
 {insights}
 
 User Question: {question}
 
-CRITICAL INSTRUCTIONS:
-1. Carefully examine the article TITLES and entities in the insights above
-2. If the user asked about a specific cryptocurrency (e.g., "XRP", "Bitcoin", "Ethereum"), PRIORITIZE information about that asset
-3. Look for mentions in both the titles AND the key points - the title alone is sufficient evidence of relevance
-4. If articles mention the queried asset in their titles but not in key points, acknowledge and analyze those articles
-5. NEVER claim an asset wasn't mentioned if it appears in article titles or entities
+CRITICAL CITATION RULES:
+1. ONLY use [Source N] format for citations (e.g., [Source 1], [Source 3])
+2. The N must match a source number from the CITABLE SOURCES section above
+3. DO NOT use any other citation format - no [BULLISH], no article titles in brackets
+4. Every factual claim needs at least one [Source N] citation
+5. Multiple sources can support one claim: [Source 1][Source 3]
 
-CITATION REQUIREMENTS:
-- You MUST cite sources using [Source N] format where N matches the source number above
-- Every factual claim should have at least one citation
-- Use the source that best supports each claim
-- Include multiple citations for well-supported points (e.g., [Source 1][Source 3])
+WRONG citation formats (NEVER use these):
+- [BULLISH] or [BEARISH] or [NEUTRAL]
+- [Article title here]
+- [Top Article Insights - ...]
+- Any text in brackets that is not [Source N]
+
+CONTENT INSTRUCTIONS:
+1. Carefully examine the article TITLES and entities in the context above
+2. If the user asked about a specific cryptocurrency, PRIORITIZE information about that asset
+3. Look for mentions in both titles AND key points - titles alone are sufficient evidence
+4. NEVER claim an asset wasn't mentioned if it appears in article titles or entities
 
 Provide a comprehensive analysis including:
-1. Direct response to the user's question with specific information about queried assets [cite sources]
-2. Overall market sentiment assessment for the queried asset (if applicable) [cite sources]
-3. Key trends identified across relevant articles [cite sources]
-4. Notable entities and events related to the query [cite sources]
+1. Direct response to the user's question with specific information [Source N]
+2. Overall market sentiment assessment for queried assets [Source N]
+3. Key trends identified across relevant articles [Source N]
+4. Notable entities and events related to the query [Source N]
 5. A balanced outlook with appropriate caveats
 
 Format your response as a well-structured analysis that directly addresses the user's question.`;
@@ -519,52 +525,35 @@ async function reduceInsights(
   else if (Math.abs(bullishPercent - bearishPercent) < 20) overallSentiment = 'mixed';
   else overallSentiment = 'neutral';
 
-  // Extract keywords from question for filtering
-  const questionKeywords = question
-    .toLowerCase()
-    .split(/\W+/)
-    .filter(w => w.length >= 2 && !['what', 'when', 'where', 'about', 'from', 'last', 'give', 'tell', 'show', 'the', 'and', 'for', 'are', 'was'].includes(w));
+  // UNIFIED SOURCE SELECTION
+  // Use the SAME sources for: (1) LLM context, (2) citations, (3) frontend display
+  // This ensures consistency - the LLM can cite any source it sees
+  const SOURCE_LIMIT = 15;  // Single source of truth for all counts
 
-  // Score insights by relevance to question
-  const scoredInsights = insights.map(insight => {
-    let score = 0;
-    const titleLower = insight.title.toLowerCase();
-    const keyPointsText = insight.keyPoints.join(' ').toLowerCase();
-    const entitiesText = insight.entities.join(' ').toLowerCase();
-
-    for (const keyword of questionKeywords) {
-      if (titleLower.includes(keyword)) score += 3;
-      if (keyPointsText.includes(keyword)) score += 2;
-      if (entitiesText.includes(keyword)) score += 1;
-    }
-
-    return { insight, score };
-  });
-
-  // Sort by relevance score (desc), then take top 50 most relevant
-  const relevantInsights = scoredInsights
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 50)
-    .map(si => si.insight);
-
-  // Format insights for reduce prompt
-  const insightsSummary = relevantInsights
-    .slice(0, 25)
-    .map((i) => `- [${i.sentiment.toUpperCase()}] ${i.title}: ${i.keyPoints.slice(0, 2).join('; ')}`)
-    .join('\n');
-
-  // Select top sources BEFORE generating summary so they can be cited
-  const topSources = selectTopSources(insights, question, 20);
+  // Select top sources - these will be used for EVERYTHING
+  const topSources = selectTopSources(insights, question, SOURCE_LIMIT);
 
   // Format sources for citation in prompt (numbered list)
+  // ALL selected sources get [Source N] numbers - no subset!
   const sourcesForCitation = topSources
-    .slice(0, 10)  // Limit to top 10 for citation
     .map((source, idx) => `[Source ${idx + 1}] "${source.title}" - ${source.quote}`)
     .join('\n');
 
-  debugLogger.info('AGENT_ANALYSIS', 'Prepared sources for citation', {
+  // Build insights summary from the SAME sources (not a separate selection)
+  // This ensures insights shown to LLM match citable sources
+  const insightsSummary = topSources
+    .map((source) => {
+      // Find the original insight for this source to get sentiment/keyPoints
+      const insight = insights.find(i => i.title === source.title);
+      if (!insight) return null;
+      return `- [${insight.sentiment.toUpperCase()}] ${source.title}: ${insight.keyPoints.slice(0, 2).join('; ')}`;
+    })
+    .filter(Boolean)
+    .join('\n');
+
+  debugLogger.info('AGENT_ANALYSIS', 'Prepared unified sources for citation', {
     totalSources: topSources.length,
-    sourcesForCitation: topSources.slice(0, 10).length,
+    citableSources: topSources.length,  // Now ALL sources are citable
   });
 
   // Check reduce cache before LLM call (saves ~10s for similar queries)
