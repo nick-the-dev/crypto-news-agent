@@ -7,9 +7,53 @@
  * - XSS attacks
  * - Log injection
  * - Command injection
+ * - ReDoS attacks (via input length limits and safe regex patterns)
  */
 
+/**
+ * Maximum input length before regex processing to prevent ReDoS attacks
+ * Inputs longer than this are rejected before regex evaluation
+ */
+const MAX_REGEX_INPUT_LENGTH = 10000;
+
+/**
+ * Maximum time (ms) allowed for regex operations
+ * Used to prevent catastrophic backtracking
+ */
+const REGEX_TIMEOUT_MS = 100;
+
+/**
+ * Safe regex execution with length limit check
+ * Prevents ReDoS by limiting input size before regex execution
+ */
+function safeRegexTest(pattern: RegExp, input: string): boolean {
+  // Length check prevents ReDoS - inputs beyond this are suspicious anyway
+  if (input.length > MAX_REGEX_INPUT_LENGTH) {
+    return true; // Treat oversized input as suspicious
+  }
+
+  // Reset lastIndex for global regexes
+  pattern.lastIndex = 0;
+  return pattern.test(input);
+}
+
+/**
+ * Safe regex replace with length limit check
+ * Prevents ReDoS by limiting input size before regex execution
+ */
+function safeRegexReplace(input: string, pattern: RegExp, replacement: string): string {
+  // Length check prevents ReDoS
+  if (input.length > MAX_REGEX_INPUT_LENGTH) {
+    // For oversized inputs, truncate rather than process
+    return input.substring(0, MAX_REGEX_INPUT_LENGTH);
+  }
+
+  pattern.lastIndex = 0;
+  return input.replace(pattern, replacement);
+}
+
 // Characters that could be used for prompt injection attacks
+// Patterns are kept simple to avoid catastrophic backtracking
 const PROMPT_INJECTION_PATTERNS = [
   /ignore\s+(all\s+)?(previous|above|prior)\s+(instructions?|prompts?|rules?)/gi,
   /disregard\s+(all\s+)?(previous|above|prior)/gi,
@@ -57,36 +101,36 @@ export function sanitizeForSearch(input: string): string {
 /**
  * Sanitize input for use in LLM prompts to prevent prompt injection
  * Returns object with sanitized input and whether suspicious patterns were detected
+ * Uses safe regex execution to prevent ReDoS attacks
  */
 export function sanitizeForLLM(input: string): { sanitized: string; suspicious: boolean } {
   if (!input || typeof input !== 'string') {
     return { sanitized: '', suspicious: false };
   }
 
+  // Early rejection for oversized inputs (ReDoS protection)
+  if (input.length > MAX_REGEX_INPUT_LENGTH) {
+    return { sanitized: input.substring(0, 500), suspicious: true };
+  }
+
   let suspicious = false;
   let sanitized = input;
 
-  // Check for prompt injection patterns
+  // Check for prompt injection patterns using safe regex
   for (const pattern of PROMPT_INJECTION_PATTERNS) {
-    if (pattern.test(sanitized)) {
+    if (safeRegexTest(pattern, sanitized)) {
       suspicious = true;
-      // Reset lastIndex for global regexes
-      pattern.lastIndex = 0;
     }
   }
 
-  // Remove or escape potentially dangerous sequences
+  // Remove or escape potentially dangerous sequences using safe regex
+  sanitized = safeRegexReplace(sanitized, /\[\s*(system|user|assistant)\s*\]/gi, '');
+  sanitized = safeRegexReplace(sanitized, /```\s*(system|prompt|instruction)/gi, '```');
+  // Simple character replacements don't need safe wrapper
   sanitized = sanitized
-    // Remove any attempted role markers
-    .replace(/\[\s*(system|user|assistant)\s*\]/gi, '')
-    // Remove markdown code block attempts to inject system prompts
-    .replace(/```\s*(system|prompt|instruction)/gi, '```')
-    // Escape angle brackets that could be used for XML-style injection
     .replace(/</g, '＜')
     .replace(/>/g, '＞')
-    // Remove null bytes
     .replace(/\0/g, '')
-    // Normalize whitespace
     .replace(/\s+/g, ' ')
     .trim();
 

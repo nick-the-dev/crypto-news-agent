@@ -15,6 +15,21 @@ import { FinalResponse } from '../schemas';
 import { validateUserQuestion, sanitizeForLog } from '../utils/sanitize';
 
 /**
+ * Set security headers for SSE responses
+ * These headers complement the global helmet middleware
+ */
+function setSSEHeaders(res: Response): void {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  // Security headers for SSE
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'");
+}
+
+/**
  * Convert AnalysisOutput to FinalResponse format
  */
 function analysisToFinalResponse(output: AnalysisOutput): FinalResponse {
@@ -146,11 +161,8 @@ export async function handleAsk(req: Request, res: Response): Promise<void> {
         `Cached Analysis: ${questionPreview}`
       );
 
-      // Set up streaming response
-      res.setHeader('Content-Type', 'text/event-stream');
-      res.setHeader('Cache-Control', 'no-cache');
-      res.setHeader('Connection', 'keep-alive');
-      res.setHeader('X-Accel-Buffering', 'no');
+      // Set up streaming response with security headers
+      setSSEHeaders(res);
 
       const startTime = Date.now();
       const result = analysisToFinalResponse(cachedAnalysis);
@@ -266,11 +278,8 @@ export async function handleAsk(req: Request, res: Response): Promise<void> {
   // Pause background ingestion during request processing
   ingestionQueue.pause();
 
-  // Set up streaming
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.setHeader('X-Accel-Buffering', 'no');
+  // Set up streaming with security headers
+  setSSEHeaders(res);
 
   // Use ref object so progress callback can check abort status
   const abortedRef = { value: false };

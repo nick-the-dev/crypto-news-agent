@@ -2,7 +2,7 @@ import './instrumentation'; // Must be first - initializes OpenTelemetry + LangF
 import express from 'express';
 import path from 'path';
 import dotenv from 'dotenv';
-import { corsMiddleware, rateLimiter, errorHandler, requestLogger } from './api/middleware';
+import { corsMiddleware, rateLimiter, errorHandler, requestLogger, securityHeaders } from './api/middleware';
 import { handleAsk } from './api/ask';
 import { healthCheck } from './api/health';
 import { disconnectPrisma } from './utils/db';
@@ -24,7 +24,9 @@ if (process.env.NODE_ENV === 'production') {
   app.set('trust proxy', 1);
 }
 
-app.use(express.json());
+// Security middleware - order matters
+app.use(securityHeaders); // Security headers (helmet)
+app.use(express.json({ limit: '10kb' })); // Limit JSON body size to prevent DoS
 app.use(corsMiddleware);
 app.use(requestLogger);
 
