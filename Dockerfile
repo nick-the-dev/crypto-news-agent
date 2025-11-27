@@ -19,8 +19,7 @@ COPY backend/ ./
 # Bypass Prisma checksum verification in case of transient server errors
 ENV PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING=1
 RUN npx prisma generate
-# Increase Node.js heap size for TypeScript compilation
-ENV NODE_OPTIONS="--max-old-space-size=4096"
+# Build using esbuild (fast, low memory usage)
 RUN npm run build
 
 # Stage 3: Production
