@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { StructuredAnswer, ArticleSource, SSEEvent, SSEEventType } from '../types';
 
 interface StreamingState {
@@ -10,6 +10,7 @@ interface StreamingState {
   answer: StructuredAnswer | null;
   error: string | null;
   currentQuestion: string;
+  threadId: string | null;
 }
 
 export function useStreamingAnswer() {
@@ -21,10 +22,17 @@ export function useStreamingAnswer() {
     sources: [],
     answer: null,
     error: null,
-    currentQuestion: ''
+    currentQuestion: '',
+    threadId: null
   });
 
-  const askQuestion = useCallback(async (question: string) => {
+  // Store threadId in ref for callbacks
+  const threadIdRef = useRef<string | null>(null);
+
+  const askQuestion = useCallback(async (question: string, threadId?: string) => {
+    // Use provided threadId or existing one
+    const effectiveThreadId = threadId || threadIdRef.current;
+
     setState({
       isStreaming: true,
       status: 'Preparing...',
@@ -33,7 +41,8 @@ export function useStreamingAnswer() {
       sources: [],
       answer: null,
       error: null,
-      currentQuestion: question
+      currentQuestion: question,
+      threadId: effectiveThreadId
     });
 
     try {
@@ -43,7 +52,7 @@ export function useStreamingAnswer() {
       const response = await fetch(`${apiUrl}/ask`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question })
+        body: JSON.stringify({ question, threadId: effectiveThreadId })
       });
 
       if (!response.ok) {
@@ -89,8 +98,14 @@ export function useStreamingAnswer() {
   const handleSSEEvent = (event: SSEEvent) => {
     setState(prev => {
       switch (event.type) {
-        case 'metadata':
-          return { ...prev, status: 'Analyzing articles...' };
+        case 'metadata': {
+          // Extract threadId from metadata and store it
+          const newThreadId = event.data.threadId as string | undefined;
+          if (newThreadId) {
+            threadIdRef.current = newThreadId;
+          }
+          return { ...prev, status: 'Analyzing articles...', threadId: newThreadId || prev.threadId };
+        }
 
         case 'sources':
           return {
@@ -151,5 +166,27 @@ export function useStreamingAnswer() {
     });
   };
 
-  return { ...state, askQuestion };
+  // Reset state for new conversation
+  const reset = useCallback(() => {
+    threadIdRef.current = null;
+    setState({
+      isStreaming: false,
+      status: '',
+      streamingTldr: '',
+      streamingDetails: '',
+      sources: [],
+      answer: null,
+      error: null,
+      currentQuestion: '',
+      threadId: null
+    });
+  }, []);
+
+  // Set threadId for continuing a conversation
+  const setThreadId = useCallback((threadId: string | null) => {
+    threadIdRef.current = threadId;
+    setState(prev => ({ ...prev, threadId }));
+  }, []);
+
+  return { ...state, askQuestion, reset, setThreadId };
 }

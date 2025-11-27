@@ -1,5 +1,6 @@
-import { StateGraph, END, START, Annotation } from '@langchain/langgraph';
+import { StateGraph, END, START, Annotation, MemorySaver, messagesStateReducer } from '@langchain/langgraph';
 import { ChatOpenAI } from '@langchain/openai';
+import { BaseMessage, HumanMessage, AIMessage } from '@langchain/core/messages';
 import { RetrievalOutput, ValidationOutput, FinalResponse } from '../schemas';
 import { AnalysisOutput, ProgressCallback, TokenStreamCallback } from './analysis';
 import { detectIntent, QueryIntent } from '../search/intent-detector';
@@ -13,10 +14,19 @@ import {
 } from '../search/claim-evidence-finder';
 import { createOpenRouterEmbeddings } from './llm';
 
+// Singleton checkpointer for conversation memory
+const checkpointer = new MemorySaver();
+
 /**
  * Define the state for the multi-agent workflow
+ * Includes messages for conversation memory (chat-like behavior)
  */
 const AgentState = Annotation.Root({
+  // Conversation history for chat-like behavior
+  messages: Annotation<BaseMessage[]>({
+    reducer: messagesStateReducer,
+    default: () => [],
+  }),
   question: Annotation<string>,
   intent: Annotation<QueryIntent>,
   timeframeDays: Annotation<number>,
@@ -251,6 +261,7 @@ export function createSupervisor(
   /**
    * Node: Finalize
    * Prepares the final response for retrieval path
+   * Adds the AI response to conversation history for memory persistence
    */
   async function finalizeNode(state: AgentStateType): Promise<Partial<AgentStateType>> {
     debugLogger.info('SUPERVISOR', 'Executing finalize node', {
@@ -263,14 +274,17 @@ export function createSupervisor(
 
     const finalAnswer = state.retrievalOutput.summary;
 
+    // Add the AI response to conversation history
     return {
       finalAnswer,
+      messages: [new AIMessage(finalAnswer)],
     };
   }
 
   /**
    * Node: Finalize Analysis
    * Prepares the final response for analysis path
+   * Adds the AI response to conversation history for memory persistence
    */
   async function finalizeAnalysisNode(state: AgentStateType): Promise<Partial<AgentStateType>> {
     debugLogger.info('SUPERVISOR', 'Executing finalize analysis node', {
@@ -305,8 +319,10 @@ export function createSupervisor(
 
     const finalAnswer = `${summary}${sentimentInfo}${trendList}${validationInfo}\n\n${disclaimer}`;
 
+    // Add the AI response to conversation history
     return {
       finalAnswer,
+      messages: [new AIMessage(finalAnswer)],
     };
   }
 
@@ -419,16 +435,27 @@ export function createSupervisor(
     .addEdge('findClaimEvidence', 'analysisValidation')  // Re-validate after evidence search
     .addEdge('finalizeAnalysis', END);
 
-  const compiledGraph = workflow.compile();
+  // Compile with checkpointer for conversation memory
+  const compiledGraph = workflow.compile({ checkpointer });
 
   debugLogger.stepFinish(stepId, { nodes: 8, edges: 10 });
 
   /**
    * Invoke the supervisor with a question
+   * @param question - The user's question
+   * @param onProgress - Optional progress callback for streaming
+   * @param onToken - Optional token callback for streaming
+   * @param threadId - Optional thread ID for conversation memory (chat-like behavior)
    */
-  return async (question: string, onProgress?: ProgressCallback, onToken?: TokenStreamCallback): Promise<FinalResponse> => {
+  return async (
+    question: string,
+    onProgress?: ProgressCallback,
+    onToken?: TokenStreamCallback,
+    threadId?: string
+  ): Promise<FinalResponse> => {
     const execStepId = debugLogger.stepStart('SUPERVISOR_EXEC', 'Executing supervisor workflow', {
       question,
+      threadId: threadId ?? 'new-session',
     });
 
     // Set the callbacks for this execution
@@ -436,8 +463,14 @@ export function createSupervisor(
     currentTokenCallback = onToken;
 
     try {
-      // Initialize state
-      const initialState: AgentStateType = {
+      // Create config with thread_id for conversation memory
+      const config = threadId
+        ? { configurable: { thread_id: threadId } }
+        : undefined;
+
+      // Initialize state with the user's message in conversation history
+      const initialState: Partial<AgentStateType> = {
+        messages: [new HumanMessage(question)],
         question,
         intent: 'retrieval',
         timeframeDays: 7,
@@ -451,8 +484,8 @@ export function createSupervisor(
         claimMatches: null,
       };
 
-      // Execute the workflow
-      const result = await compiledGraph.invoke(initialState);
+      // Execute the workflow with config for memory persistence
+      const result = await compiledGraph.invoke(initialState, config);
 
       if (!result.finalAnswer) {
         throw new Error('Workflow did not complete successfully');

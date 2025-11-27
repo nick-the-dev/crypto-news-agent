@@ -10,6 +10,7 @@ export interface StructuredAnswer {
     newsTimestamp?: string;
     articlesAnalyzed: number;
     processingTime?: number;
+    threadId?: string;
   };
   sources: ArticleSource[];
 }
@@ -27,5 +28,32 @@ export type SSEEventType = 'metadata' | 'sources' | 'status' | 'tldr' | 'details
 
 export interface SSEEvent {
   type: SSEEventType;
-  data: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  data: Record<string, unknown>;
+}
+
+// Chat-related types
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: string;
+  answer?: StructuredAnswer;
+}
+
+export interface Chat {
+  id: string;
+  threadId: string;
+  title: string;
+  messages: ChatMessage[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ChatListItem {
+  id: string;
+  threadId: string;
+  title: string;
+  lastMessage: string;
+  updatedAt: string;
 }

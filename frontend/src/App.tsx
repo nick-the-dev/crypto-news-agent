@@ -1,56 +1,29 @@
-import { useStreamingAnswer } from './hooks/useStreamingAnswer';
-import { QuestionInput } from './components/QuestionInput';
-import { LoadingIndicator } from './components/LoadingIndicator';
-import { StructuredAnswer } from './components/StructuredAnswer';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { ChatProvider } from './context/ChatContext';
+import { ChatSidebar } from './components/ChatSidebar';
+import { ChatPage } from './pages/ChatPage';
+
+function AppLayout() {
+  return (
+    <div className="flex h-screen bg-gray-100">
+      <ChatSidebar />
+      <main className="flex-1 flex flex-col overflow-hidden">
+        <Routes>
+          <Route path="/" element={<ChatPage />} />
+          <Route path="/chat/:threadId" element={<ChatPage />} />
+        </Routes>
+      </main>
+    </div>
+  );
+}
 
 function App() {
-  const { isStreaming, status, streamingTldr, streamingDetails, answer, error, currentQuestion, askQuestion } = useStreamingAnswer();
-
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-      <div className="container mx-auto px-4 py-8">
-        <header className="text-center mb-12">
-          <h1 className="text-5xl font-bold text-gray-900 mb-2">
-            Crypto News Agent
-          </h1>
-          <p className="text-xl text-gray-600">
-            AI-powered answers from the latest crypto news
-          </p>
-        </header>
-
-        <QuestionInput onSubmit={askQuestion} disabled={isStreaming} />
-
-        {error && (
-          <div className="max-w-4xl mx-auto mb-8 bg-red-50 border-l-4 border-red-600 p-4 rounded-r-lg">
-            <div className="flex items-center gap-2">
-              <span className="text-2xl">⚠️</span>
-              <p className="text-red-800">Error: {error}</p>
-            </div>
-          </div>
-        )}
-
-        {isStreaming && !answer && (
-          <LoadingIndicator status={status} />
-        )}
-
-        {isStreaming && answer && (
-          <StructuredAnswer answer={answer} streamingTldr={streamingTldr} streamingDetails={streamingDetails} question={currentQuestion} />
-        )}
-
-        {!isStreaming && answer && (
-          <StructuredAnswer answer={answer} question={currentQuestion} />
-        )}
-
-        <footer className="text-center mt-16 text-gray-600 text-sm">
-          <div className="mb-2">
-            Made with ♥️ by Nick Taran
-          </div>
-          <div>
-            Powered by OpenRouter • Sources: DL News, The Defiant, Cointelegraph
-          </div>
-        </footer>
-      </div>
-    </div>
+    <BrowserRouter>
+      <ChatProvider>
+        <AppLayout />
+      </ChatProvider>
+    </BrowserRouter>
   );
 }
 

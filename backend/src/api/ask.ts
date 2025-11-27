@@ -102,7 +102,7 @@ export async function handleAsk(req: Request, res: Response): Promise<void> {
     hasQuestion: !!req.body.question
   });
 
-  const { question: rawQuestion } = req.body;
+  const { question: rawQuestion, threadId: requestThreadId } = req.body;
 
   // Input validation and sanitization
   const validation = validateUserQuestion(rawQuestion);
@@ -293,13 +293,17 @@ export async function handleAsk(req: Request, res: Response): Promise<void> {
   // Store handler reference for proper flushing
   let langfuseHandler: ReturnType<typeof createLangfuseHandler> | null = null;
 
+  // Use provided threadId for conversation continuity, or generate new one
+  const threadId = requestThreadId || `thread-${Date.now()}`;
+
   try {
     const startTime = Date.now();
 
     res.write(`event: metadata\n`);
     res.write(`data: ${JSON.stringify({
       queryTimestamp: new Date().toISOString(),
-      articlesAnalyzed: totalArticles
+      articlesAnalyzed: totalArticles,
+      threadId, // Return threadId for conversation continuity
     })}\n\n`);
 
     // Detect intent to provide appropriate status messaging
@@ -317,7 +321,6 @@ export async function handleAsk(req: Request, res: Response): Promise<void> {
     // Create a readable trace name from the question
     const questionPreview = question.substring(0, 40).replace(/[^a-zA-Z0-9\s]/g, '').trim();
     const sessionId = `ask-${Date.now()}`;
-    const traceName = `Crypto News: ${questionPreview}`;
 
     // Initialize LangChain
     const llm = createOpenRouterLLM();
@@ -349,6 +352,7 @@ export async function handleAsk(req: Request, res: Response): Promise<void> {
     debugLogger.info('ASK_REQUEST', 'Executing multi-agent supervisor', {
       question,
       sessionId,
+      threadId,
     });
 
     // Create progress and token streamers for analysis queries
@@ -356,8 +360,8 @@ export async function handleAsk(req: Request, res: Response): Promise<void> {
     const streamedContentRef = { value: '' };
     const tokenCallback = createTokenStreamer(res, abortedRef, streamedContentRef);
 
-    // Execute supervisor - LangFuse CallbackHandler tracks each LLM call
-    const result = await supervisor(question, progressCallback, tokenCallback);
+    // Execute supervisor with threadId for conversation memory
+    const result = await supervisor(question, progressCallback, tokenCallback, threadId);
 
     if (streamAborted) {
       debugLogger.warn('ASK_REQUEST', 'Stream aborted before completion', {});
