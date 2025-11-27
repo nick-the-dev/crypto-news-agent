@@ -184,10 +184,20 @@ export function StructuredAnswer({ answer, streamingTldr, streamingDetails, ques
         <div className="text-gray-700 leading-relaxed text-sm sm:text-base">
           {/* TL;DR section */}
           <div className="mb-3 sm:mb-4">
-            <p className="text-base sm:text-lg font-semibold text-gray-900 mb-2">
-              {streamingTldr || answer.tldr}
+            <h4 className="text-xs sm:text-sm font-semibold text-gray-500 uppercase tracking-wide mb-1">TL;DR</h4>
+            <div className="text-base sm:text-lg font-semibold text-gray-900 mb-2">
+              <ReactMarkdown
+                components={{
+                  p: ({ children }: ComponentPropsWithoutRef<'p'>) => <span>{children}</span>,
+                  strong: ({ children }: ComponentPropsWithoutRef<'strong'>) => (
+                    <strong className="font-bold">{children}</strong>
+                  ),
+                }}
+              >
+                {streamingTldr || answer.tldr}
+              </ReactMarkdown>
               {streamingTldr && !streamingDetails && <span className="inline-block w-2 h-4 sm:h-5 bg-blue-600 animate-pulse ml-1"></span>}
-            </p>
+            </div>
           </div>
 
           {/* Details section */}
