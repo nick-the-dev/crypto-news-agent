@@ -108,6 +108,21 @@ export function useStreamingAnswer() {
         case 'status':
           return { ...prev, status: event.data.message };
 
+        case 'token':
+          // Append token to streaming details for real-time streaming
+          // Create placeholder answer if none exists so component renders
+          const newAnswer = prev.answer || {
+            tldr: '',
+            details: { content: '', citations: [] },
+            confidence: 0,
+            sources: []
+          };
+          return {
+            ...prev,
+            streamingDetails: prev.streamingDetails + event.data.token,
+            answer: newAnswer
+          };
+
         case 'tldr':
           return { ...prev, streamingTldr: event.data.content };
 
