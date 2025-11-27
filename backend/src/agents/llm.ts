@@ -10,6 +10,12 @@ const EMBEDDING_BATCH_SIZE = 100;
 const EMBEDDING_MAX_LENGTH = 8000;
 
 /**
+ * Default max tokens for agent responses
+ * Used by retrieval, validation, and analysis agents for consistent output length
+ */
+export const AGENT_MAX_TOKENS = 1024;
+
+/**
  * Model pricing per million tokens (from OpenRouter)
  */
 export const MODEL_PRICING = {
@@ -173,7 +179,7 @@ export function createOpenRouterLLM(options?: {
       },
     },
     temperature: options?.temperature ?? 0.2,
-    maxTokens: options?.maxTokens ?? 2000,
+    maxTokens: options?.maxTokens ?? AGENT_MAX_TOKENS,
     streaming: options?.streaming ?? true,
   });
 }
