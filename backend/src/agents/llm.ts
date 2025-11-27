@@ -49,7 +49,7 @@ export function createLangfuseHandler(options?: {
   userId?: string;
   tags?: string[];
 }): CallbackHandler {
-  return new CallbackHandler({
+  const handler = new CallbackHandler({
     sessionId: options?.sessionId,
     userId: options?.userId,
     tags: options?.tags || ['crypto-news-agent'],
@@ -57,7 +57,10 @@ export function createLangfuseHandler(options?: {
       model: LLM_MODEL,
       modelPricing: MODEL_PRICING[LLM_MODEL as keyof typeof MODEL_PRICING],
     },
+    debug: process.env.LANGFUSE_DEBUG === 'true',
   });
+
+  return handler;
 }
 
 /**

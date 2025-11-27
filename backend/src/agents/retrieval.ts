@@ -89,7 +89,12 @@ export async function createRetrievalAgent(
       // Step 3: Generate summary with structured output
       const summaryLLM = llm.withStructuredOutput(RetrievalOutputSchema);
 
-      const summaryPrompt = `Answer "${question}" in 2-3 sentences using only these sources. Cite every fact with [Source N].
+      // Include confidence caveat in prompt if present
+      const confidenceCaveat = searchResults.confidence?.caveat
+        ? `\n\nIMPORTANT: ${searchResults.confidence.caveat} Start your response acknowledging this.`
+        : '';
+
+      const summaryPrompt = `Answer "${question}" in 2-3 sentences using only these sources. Cite every fact with [Source N].${confidenceCaveat}
 
 ${searchResults.articles.map((a: any) => `[Source ${a.sourceNumber}] ${a.title} (${a.publishedAt}): ${a.quote}`).join('\n\n')}`;
 
