@@ -9,31 +9,40 @@ datasource db {
 }
 
 model Article {
-  id          String         @id @default(uuid())
-  url         String         @unique
-  title       String
-  content     String         @db.Text
-  summary     String?        @db.Text
-  source      String
-  author      String?
-  publishedAt DateTime
-  createdAt   DateTime       @default(now())
-  chunks      ArticleChunk[]
+  id           String         @id @default(uuid())
+  url          String         @unique
+  title        String
+  content      String         @db.Text
+  summary      String?        @db.Text
+  source       String
+  author       String?
+  publishedAt  DateTime
+  createdAt    DateTime       @default(now())
+  searchVector Unsupported("tsvector")?
+  chunks       ArticleChunk[]
+
+  // Cached analysis insights (for performance)
+  sentiment    String?        // bullish, bearish, neutral
+  keyPoints    String[]       // extracted key points
+  entities     String[]       // mentioned entities (coins, companies, people)
+  analyzedAt   DateTime?      // when insights were last computed
 
   @@index([publishedAt])
   @@index([source])
+  @@index([analyzedAt])
 }
 
 model ArticleChunk {
-  id         String             @id @default(uuid())
-  articleId  String
-  article    Article            @relation(fields: [articleId], references: [id], onDelete: Cascade)
-  chunkIndex Int
-  content    String             @db.Text
-  isIntro    Boolean            @default(false)
-  isSummary  Boolean            @default(false)
-  createdAt  DateTime           @default(now())
-  embedding  ArticleEmbedding?
+  id           String             @id @default(uuid())
+  articleId    String
+  article      Article            @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  chunkIndex   Int
+  content      String             @db.Text
+  isIntro      Boolean            @default(false)
+  isSummary    Boolean            @default(false)
+  createdAt    DateTime           @default(now())
+  searchVector Unsupported("tsvector")?
+  embedding    ArticleEmbedding?
 
   @@unique([articleId, chunkIndex])
   @@index([articleId])
