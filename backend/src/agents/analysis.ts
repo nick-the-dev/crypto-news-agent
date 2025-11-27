@@ -1,8 +1,10 @@
 import { ChatOpenAI } from '@langchain/openai';
 import { ChatPromptTemplate } from '@langchain/core/prompts';
+import { RunnableSequence } from '@langchain/core/runnables';
 import { CallbackHandler } from '@langfuse/langchain';
 import { prisma } from '../utils/db';
 import { debugLogger } from '../utils/debug-logger';
+import { SingleArticleAnalysisSchema, SingleArticleAnalysis } from '../schemas';
 import crypto from 'crypto';
 
 /**
@@ -205,14 +207,7 @@ function countCitations(text: string): number {
   return citations.size;
 }
 
-/**
- * Single article analysis result (for pre-analysis during ingestion)
- */
-export interface SingleArticleAnalysis {
-  sentiment: 'bullish' | 'bearish' | 'neutral';
-  keyPoints: string[];
-  entities: string[];
-}
+// SingleArticleAnalysis type is imported from ../schemas
 
 const MAP_PROMPT = `Analyze this crypto news article and extract:
 1. Sentiment: bullish, bearish, or neutral
@@ -221,9 +216,7 @@ const MAP_PROMPT = `Analyze this crypto news article and extract:
 
 Article:
 Title: {title}
-Content: {content}
-
-Return JSON only: {"sentiment": "bullish"|"bearish"|"neutral", "keyPoints": ["..."], "entities": ["..."]}`;
+Content: {content}`;
 
 const REDUCE_PROMPT = `Based on analysis of {count} crypto news articles from the last {days} days:
 
@@ -372,17 +365,15 @@ async function mapArticles(
         try {
           const content = article.summary || article.content.substring(0, 1500);
 
-          // Use chain pattern to ensure CallbackHandler receives handleChainStart
-          // which properly sets sessionId on the trace
+          // Use chain pattern with structured output for reliable parsing
+          // CRITICAL: Use withStructuredOutput for consistent schema-based responses
+          const structuredLLM = llm.withStructuredOutput<SingleArticleAnalysis>(SingleArticleAnalysisSchema);
           const mapPrompt = ChatPromptTemplate.fromTemplate(MAP_PROMPT);
-          const chain = mapPrompt.pipe(llm);
-          const response = await chain.invoke(
+          const chain = RunnableSequence.from([mapPrompt, structuredLLM]);
+          const parsed = await chain.invoke(
             { title: article.title, content },
             { callbacks, runName: `Analyze: ${article.title.substring(0, 30)}` }
           );
-
-          const text = typeof response.content === 'string' ? response.content : String(response.content);
-          const parsed = JSON.parse(text.replace(/```json?\n?|\n?```/g, '').trim());
 
           const insight: ArticleInsight = {
             id: article.id,
@@ -712,13 +703,15 @@ export async function analyzeArticleForIngestion(
   try {
     // Use summary if available, otherwise truncate content
     const contentForAnalysis = content.substring(0, 1500);
-    const prompt = MAP_PROMPT
-      .replace('{title}', title)
-      .replace('{content}', contentForAnalysis);
 
-    const response = await llm.invoke(prompt);
-    const text = typeof response.content === 'string' ? response.content : String(response.content);
-    const parsed = JSON.parse(text.replace(/```json?\n?|\n?```/g, '').trim());
+    // Use structured output for reliable parsing
+    const structuredLLM = llm.withStructuredOutput<SingleArticleAnalysis>(SingleArticleAnalysisSchema);
+    const mapPrompt = ChatPromptTemplate.fromTemplate(MAP_PROMPT);
+    const chain = RunnableSequence.from([mapPrompt, structuredLLM]);
+    const parsed = await chain.invoke({
+      title,
+      content: contentForAnalysis,
+    });
 
     return {
       sentiment: parsed.sentiment || 'neutral',

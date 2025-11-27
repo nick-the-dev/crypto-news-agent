@@ -90,7 +90,7 @@ export async function createRetrievalAgent(
       // Step 3: Generate summary with structured output
       // CRITICAL: Use RunnableSequence for proper LangFuse sessionId tracking
       // Direct llm.invoke() does NOT trigger handleChainStart, causing orphaned traces with NULL sessionId
-      const summaryLLM = llm.withStructuredOutput(RetrievalOutputSchema);
+      const summaryLLM = llm.withStructuredOutput<RetrievalOutput>(RetrievalOutputSchema);
 
       // Include confidence caveat in prompt if present
       const confidenceCaveat = searchResults.confidence?.caveat

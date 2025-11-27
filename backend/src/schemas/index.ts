@@ -39,6 +39,17 @@ export const ValidationOutputSchema = z.object({
 export type ValidationOutput = z.infer<typeof ValidationOutputSchema>;
 
 /**
+ * Schema for single article analysis (MAP phase in Analysis Agent)
+ */
+export const SingleArticleAnalysisSchema = z.object({
+  sentiment: z.enum(['bullish', 'bearish', 'neutral']).describe('Market sentiment of the article'),
+  keyPoints: z.array(z.string()).describe('2-3 key points from the article'),
+  entities: z.array(z.string()).describe('Mentioned cryptocurrencies, companies, or people'),
+});
+
+export type SingleArticleAnalysis = z.infer<typeof SingleArticleAnalysisSchema>;
+
+/**
  * Schema for final response from Supervisor
  */
 export const FinalResponseSchema = z.object({
