@@ -5,9 +5,12 @@ AI-powered crypto news agent that provides real-time answers based on the latest
 ## Features
 
 - **Real-time News Ingestion**: Automatically fetches and processes articles from 3 major crypto news sources
-- **Semantic Search**: Uses pgvector for efficient similarity search with embeddings
-- **Anti-Hallucination**: Strict citation requirements and confidence scoring
+- **Multi-Agent Architecture**: LangGraph-based supervisor with specialized retrieval, validation, and analysis agents
+- **Hybrid Search Pipeline**: 4-stage retrieval (query rewriting → hybrid vector+lexical search → reranking → confidence assessment)
+- **Anti-Hallucination**: Strict citation requirements, validation agent, and confidence scoring
 - **Streaming Responses**: Real-time token-by-token answers via Server-Sent Events
+- **LLM Observability**: Full tracing with LangFuse for debugging and monitoring
+- **Security Hardened**: OWASP Top 10 compliant with helmet, rate limiting, input sanitization
 - **Modern Stack**: TypeScript, React, Node.js, PostgreSQL, Prisma, Tailwind CSS
 
 ## Tech Stack
@@ -237,7 +240,32 @@ npm run preview      # Preview production build
 2. **The Defiant**: https://thedefiant.io/api/feed
 3. **Cointelegraph**: https://cointelegraph.com/rss
 
-Articles are fetched on every query to ensure fresh data.
+Articles are fetched automatically every minute via background jobs.
+
+## Security
+
+The application implements OWASP Top 10 security best practices:
+
+- **Security Headers**: Helmet middleware (CSP, HSTS, X-Frame-Options, X-Content-Type-Options)
+- **Rate Limiting**: 10 requests/minute per IP
+- **Input Sanitization**: Protection against SQL injection, XSS, prompt injection, ReDoS
+- **Content Moderation**: OpenAI Moderation API with keyword fallback
+- **JSON Body Limits**: 10kb max to prevent DoS
+- **Optional API Key Auth**: Set `API_KEY` env var to require `X-API-Key` header
+
+## Observability
+
+LLM calls are traced with [LangFuse](https://langfuse.com):
+
+- Full request tracing with session correlation
+- Token usage and latency metrics
+- Multi-agent workflow visualization
+
+Configure in `.env`:
+```bash
+LANGFUSE_PUBLIC_KEY=pk-lf-...
+LANGFUSE_SECRET_KEY=sk-lf-...
+```
 
 ## Troubleshooting
 
