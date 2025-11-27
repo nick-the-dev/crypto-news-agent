@@ -1,11 +1,28 @@
 import { useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useChat } from '../context/ChatContext';
+import { useSidebar } from '../App';
 import { useStreamingAnswer } from '../hooks/useStreamingAnswer';
 import { QuestionInput } from '../components/QuestionInput';
 import { LoadingIndicator } from '../components/LoadingIndicator';
 import { StructuredAnswer } from '../components/StructuredAnswer';
 import { ChatMessage } from '../types';
+
+// Hamburger menu button component
+function MenuButton() {
+  const { toggle } = useSidebar();
+  return (
+    <button
+      onClick={toggle}
+      className="md:hidden p-2 -ml-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg"
+      aria-label="Open menu"
+    >
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+      </svg>
+    </button>
+  );
+}
 
 function MessageBubble({ message }: { message: ChatMessage }) {
   const isUser = message.role === 'user';
@@ -13,20 +30,20 @@ function MessageBubble({ message }: { message: ChatMessage }) {
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-4`}>
       <div
-        className={`max-w-[85%] ${
+        className={`${isUser ? 'max-w-[90%] sm:max-w-[85%]' : 'max-w-[95%] sm:max-w-[85%]'} ${
           isUser
-            ? 'bg-indigo-600 text-white rounded-2xl rounded-br-md px-4 py-3'
+            ? 'bg-indigo-600 text-white rounded-2xl rounded-br-md px-3 sm:px-4 py-2 sm:py-3'
             : 'bg-white rounded-2xl rounded-bl-md shadow-sm'
         }`}
       >
         {isUser ? (
-          <p className="whitespace-pre-wrap">{message.content}</p>
+          <p className="whitespace-pre-wrap text-sm sm:text-base">{message.content}</p>
         ) : message.answer ? (
-          <div className="p-2">
+          <div className="p-1 sm:p-2">
             <StructuredAnswer answer={message.answer} question="" />
           </div>
         ) : (
-          <p className="px-4 py-3 text-gray-700 whitespace-pre-wrap">{message.content}</p>
+          <p className="px-3 sm:px-4 py-2 sm:py-3 text-gray-700 whitespace-pre-wrap text-sm sm:text-base">{message.content}</p>
         )}
       </div>
     </div>
@@ -147,42 +164,50 @@ export function ChatPage() {
   // Show welcome screen if no chat selected and not waiting for a response
   if (!threadId && !pendingQuestionRef.current && !isStreaming) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center p-8 bg-gradient-to-br from-blue-50 to-indigo-100">
-        <div className="text-center max-w-2xl">
-          <h1 className="text-5xl font-bold text-gray-900 mb-4">
-            Crypto News Agent
-          </h1>
-          <p className="text-xl text-gray-600 mb-8">
-            AI-powered answers from the latest crypto news
-          </p>
-          <div className="bg-white rounded-2xl shadow-lg p-6 mb-8">
-            <QuestionInput onSubmit={handleSubmit} disabled={isStreaming} />
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-left">
-            <button
-              onClick={() => handleSubmit("What's happening with Bitcoin today?")}
-              className="p-4 bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow text-left"
-            >
-              <span className="text-2xl mb-2 block">📈</span>
-              <span className="font-medium text-gray-900">Bitcoin Today</span>
-              <p className="text-sm text-gray-500 mt-1">Latest BTC news and price action</p>
-            </button>
-            <button
-              onClick={() => handleSubmit("What are the latest DeFi developments?")}
-              className="p-4 bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow text-left"
-            >
-              <span className="text-2xl mb-2 block">🏦</span>
-              <span className="font-medium text-gray-900">DeFi Updates</span>
-              <p className="text-sm text-gray-500 mt-1">Decentralized finance news</p>
-            </button>
-            <button
-              onClick={() => handleSubmit("Any major crypto regulations news?")}
-              className="p-4 bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow text-left"
-            >
-              <span className="text-2xl mb-2 block">⚖️</span>
-              <span className="font-medium text-gray-900">Regulation News</span>
-              <p className="text-sm text-gray-500 mt-1">Policy and regulatory updates</p>
-            </button>
+      <div className="flex-1 flex flex-col bg-gradient-to-br from-blue-50 to-indigo-100">
+        {/* Mobile header with menu */}
+        <header className="md:hidden bg-white/80 backdrop-blur-sm border-b border-gray-200 px-4 py-3 flex items-center">
+          <MenuButton />
+          <span className="ml-2 font-semibold text-gray-900">Crypto News Agent</span>
+        </header>
+
+        <div className="flex-1 flex flex-col items-center justify-center p-4 sm:p-8">
+          <div className="text-center max-w-2xl w-full">
+            <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold text-gray-900 mb-2 sm:mb-4">
+              Crypto News Agent
+            </h1>
+            <p className="text-base sm:text-lg md:text-xl text-gray-600 mb-6 sm:mb-8">
+              AI-powered answers from the latest crypto news
+            </p>
+            <div className="bg-white rounded-2xl shadow-lg p-4 sm:p-6 mb-6 sm:mb-8">
+              <QuestionInput onSubmit={handleSubmit} disabled={isStreaming} />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 text-left">
+              <button
+                onClick={() => handleSubmit("What's happening with Bitcoin today?")}
+                className="p-3 sm:p-4 bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow text-left"
+              >
+                <span className="text-xl sm:text-2xl mb-1 sm:mb-2 block">📈</span>
+                <span className="font-medium text-gray-900 text-sm sm:text-base">Bitcoin Today</span>
+                <p className="text-xs sm:text-sm text-gray-500 mt-1">Latest BTC news and price action</p>
+              </button>
+              <button
+                onClick={() => handleSubmit("What are the latest DeFi developments?")}
+                className="p-3 sm:p-4 bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow text-left"
+              >
+                <span className="text-xl sm:text-2xl mb-1 sm:mb-2 block">🏦</span>
+                <span className="font-medium text-gray-900 text-sm sm:text-base">DeFi Updates</span>
+                <p className="text-xs sm:text-sm text-gray-500 mt-1">Decentralized finance news</p>
+              </button>
+              <button
+                onClick={() => handleSubmit("Any major crypto regulations news?")}
+                className="p-3 sm:p-4 bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow text-left"
+              >
+                <span className="text-xl sm:text-2xl mb-1 sm:mb-2 block">⚖️</span>
+                <span className="font-medium text-gray-900 text-sm sm:text-base">Regulation News</span>
+                <p className="text-xs sm:text-sm text-gray-500 mt-1">Policy and regulatory updates</p>
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -193,24 +218,25 @@ export function ChatPage() {
   if (!threadId && (pendingQuestionRef.current || isStreaming)) {
     return (
       <div className="flex-1 flex flex-col h-full bg-gradient-to-br from-blue-50 to-indigo-100">
-        <header className="bg-white border-b border-gray-200 px-6 py-4">
+        <header className="bg-white border-b border-gray-200 px-4 sm:px-6 py-3 sm:py-4 flex items-center gap-2">
+          <MenuButton />
           <h2 className="font-semibold text-gray-900">New Chat</h2>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="flex-1 overflow-y-auto p-3 sm:p-6">
           <div className="max-w-4xl mx-auto">
             {/* User message */}
             <div className="flex justify-end mb-4">
-              <div className="max-w-[85%] bg-indigo-600 text-white rounded-2xl rounded-br-md px-4 py-3">
-                <p className="whitespace-pre-wrap">{pendingQuestionRef.current}</p>
+              <div className="max-w-[90%] sm:max-w-[85%] bg-indigo-600 text-white rounded-2xl rounded-br-md px-3 sm:px-4 py-2 sm:py-3">
+                <p className="whitespace-pre-wrap text-sm sm:text-base">{pendingQuestionRef.current}</p>
               </div>
             </div>
 
             {/* Assistant response */}
             <div className="flex justify-start mb-4">
-              <div className="max-w-[85%] bg-white rounded-2xl rounded-bl-md shadow-sm">
+              <div className="max-w-[95%] sm:max-w-[85%] bg-white rounded-2xl rounded-bl-md shadow-sm">
                 {answer ? (
-                  <div className="p-2">
+                  <div className="p-1 sm:p-2">
                     <StructuredAnswer
                       answer={answer}
                       streamingTldr={streamingTldr}
@@ -219,7 +245,7 @@ export function ChatPage() {
                     />
                   </div>
                 ) : (
-                  <div className="p-4">
+                  <div className="p-3 sm:p-4">
                     <LoadingIndicator status={status} />
                   </div>
                 )}
@@ -228,7 +254,7 @@ export function ChatPage() {
           </div>
         </div>
 
-        <div className="bg-white border-t border-gray-200 p-4">
+        <div className="bg-white border-t border-gray-200 p-3 sm:p-4">
           <div className="max-w-4xl mx-auto">
             <QuestionInput onSubmit={handleSubmit} disabled={isStreaming} />
           </div>
@@ -240,14 +266,17 @@ export function ChatPage() {
   return (
     <div className="flex-1 flex flex-col h-full bg-gradient-to-br from-blue-50 to-indigo-100">
       {/* Chat Header */}
-      <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
-        <div>
-          <h2 className="font-semibold text-gray-900">
-            {currentChat?.title || 'New Chat'}
-          </h2>
-          <p className="text-sm text-gray-500">
-            {currentChat?.messages.length || 0} messages
-          </p>
+      <header className="bg-white border-b border-gray-200 px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <MenuButton />
+          <div className="min-w-0">
+            <h2 className="font-semibold text-gray-900 truncate">
+              {currentChat?.title || 'New Chat'}
+            </h2>
+            <p className="text-xs sm:text-sm text-gray-500">
+              {currentChat?.messages.length || 0} messages
+            </p>
+          </div>
         </div>
       </header>
 
@@ -255,7 +284,7 @@ export function ChatPage() {
       <div
         ref={messagesContainerRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto p-6"
+        className="flex-1 overflow-y-auto p-3 sm:p-6"
       >
         <div className="max-w-4xl mx-auto">
           {currentChat?.messages.map((message, index) => {
@@ -268,9 +297,9 @@ export function ChatPage() {
             if (isLastAssistant) {
               return (
                 <div key={message.id} className="flex justify-start mb-4">
-                  <div className="max-w-[85%] bg-white rounded-2xl rounded-bl-md shadow-sm">
+                  <div className="max-w-[95%] sm:max-w-[85%] bg-white rounded-2xl rounded-bl-md shadow-sm">
                     {answer ? (
-                      <div className="p-2">
+                      <div className="p-1 sm:p-2">
                         <StructuredAnswer
                           answer={answer}
                           streamingTldr={streamingTldr}
@@ -279,7 +308,7 @@ export function ChatPage() {
                         />
                       </div>
                     ) : (
-                      <div className="p-4">
+                      <div className="p-3 sm:p-4">
                         <LoadingIndicator status={status} />
                       </div>
                     )}
@@ -297,10 +326,10 @@ export function ChatPage() {
           })}
 
           {error && (
-            <div className="mb-4 bg-red-50 border-l-4 border-red-600 p-4 rounded-r-lg">
+            <div className="mb-4 bg-red-50 border-l-4 border-red-600 p-3 sm:p-4 rounded-r-lg">
               <div className="flex items-center gap-2">
-                <span className="text-2xl">⚠️</span>
-                <p className="text-red-800">Error: {error}</p>
+                <span className="text-xl sm:text-2xl">⚠️</span>
+                <p className="text-red-800 text-sm sm:text-base">Error: {error}</p>
               </div>
             </div>
           )}
@@ -310,7 +339,7 @@ export function ChatPage() {
       </div>
 
       {/* Input Area */}
-      <div className="bg-white border-t border-gray-200 p-4">
+      <div className="bg-white border-t border-gray-200 p-3 sm:p-4">
         <div className="max-w-4xl mx-auto">
           <QuestionInput onSubmit={handleSubmit} disabled={isStreaming} />
         </div>

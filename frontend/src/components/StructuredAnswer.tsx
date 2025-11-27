@@ -99,6 +99,22 @@ export function StructuredAnswer({ answer, streamingTldr, streamingDetails, ques
     });
   };
 
+  // Process children to handle text nodes with tags
+  const processChildren = (children: ReactNode): ReactNode => {
+    if (typeof children === 'string') {
+      return processTextWithTags(children, handleCitationClick);
+    }
+    if (Array.isArray(children)) {
+      return children.map((child, i) => {
+        if (typeof child === 'string') {
+          return <span key={i}>{processTextWithTags(child, handleCitationClick)}</span>;
+        }
+        return child;
+      });
+    }
+    return children;
+  };
+
   // Render markdown with custom text processing for tags
   const renderMarkdownContent = (content: string): ReactNode => {
     return (
@@ -141,62 +157,46 @@ export function StructuredAnswer({ answer, streamingTldr, streamingDetails, ques
     );
   };
 
-  // Process children to handle text nodes with tags
-  const processChildren = (children: ReactNode): ReactNode => {
-    if (typeof children === 'string') {
-      return processTextWithTags(children, handleCitationClick);
-    }
-    if (Array.isArray(children)) {
-      return children.map((child, i) => {
-        if (typeof child === 'string') {
-          return <span key={i}>{processTextWithTags(child, handleCitationClick)}</span>;
-        }
-        return child;
-      });
-    }
-    return children;
-  };
-
   return (
-    <div className="w-full max-w-4xl mx-auto space-y-6">
+    <div className="w-full max-w-4xl mx-auto space-y-4 sm:space-y-6">
       {/* Question Display */}
       {question && (
-        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-4">
-          <div className="flex items-start gap-3">
-            <span className="text-2xl flex-shrink-0">❓</span>
-            <div>
-              <h3 className="text-sm font-semibold text-gray-600 mb-1">Your Question</h3>
-              <p className="text-gray-900 text-lg">{question}</p>
+        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-3 sm:p-4">
+          <div className="flex items-start gap-2 sm:gap-3">
+            <span className="text-xl sm:text-2xl flex-shrink-0">❓</span>
+            <div className="min-w-0">
+              <h3 className="text-xs sm:text-sm font-semibold text-gray-600 mb-1">Your Question</h3>
+              <p className="text-gray-900 text-base sm:text-lg">{question}</p>
             </div>
           </div>
         </div>
       )}
 
       {/* Answer Display */}
-      <div className="bg-white border border-gray-200 rounded-lg p-6">
-        <div className="flex items-center justify-between mb-4">
+      <div className="bg-white border border-gray-200 rounded-lg p-4 sm:p-6">
+        <div className="flex items-center justify-between mb-3 sm:mb-4 gap-2">
           <div className="flex items-center gap-2">
-            <span className="text-2xl">💡</span>
-            <h2 className="text-xl font-bold text-gray-900">Answer</h2>
+            <span className="text-xl sm:text-2xl">💡</span>
+            <h2 className="text-lg sm:text-xl font-bold text-gray-900">Answer</h2>
           </div>
           <ConfidenceBadge score={answer.confidence} />
         </div>
-        <div className="text-gray-700 leading-relaxed">
+        <div className="text-gray-700 leading-relaxed text-sm sm:text-base">
           {/* TL;DR section */}
-          <div className="mb-4">
-            <p className="text-lg font-semibold text-gray-900 mb-2">
+          <div className="mb-3 sm:mb-4">
+            <p className="text-base sm:text-lg font-semibold text-gray-900 mb-2">
               {streamingTldr || answer.tldr}
-              {streamingTldr && !streamingDetails && <span className="inline-block w-2 h-5 bg-blue-600 animate-pulse ml-1"></span>}
+              {streamingTldr && !streamingDetails && <span className="inline-block w-2 h-4 sm:h-5 bg-blue-600 animate-pulse ml-1"></span>}
             </p>
           </div>
 
           {/* Details section */}
           {(streamingDetails || answer.details.content) && (
-            <div className="text-gray-700 mb-6">
+            <div className="text-gray-700 mb-4 sm:mb-6">
               {streamingDetails ? (
                 <>
                   {renderMarkdownContent(streamingDetails)}
-                  <span className="inline-block w-2 h-5 bg-blue-600 animate-pulse ml-1"></span>
+                  <span className="inline-block w-2 h-4 sm:h-5 bg-blue-600 animate-pulse ml-1"></span>
                 </>
               ) : (
                 renderMarkdownContent(answer.details.content)
@@ -206,9 +206,9 @@ export function StructuredAnswer({ answer, streamingTldr, streamingDetails, ques
 
           {/* Sources as compact tiles */}
           {answer.sources.length > 0 && (
-            <div className="pt-4 border-t border-gray-200">
-              <h3 className="text-sm font-semibold text-gray-600 mb-3">📰 Sources</h3>
-              <div className="flex flex-wrap gap-2">
+            <div className="pt-3 sm:pt-4 border-t border-gray-200">
+              <h3 className="text-xs sm:text-sm font-semibold text-gray-600 mb-2 sm:mb-3">📰 Sources</h3>
+              <div className="flex flex-wrap gap-1.5 sm:gap-2">
                 {answer.sources.map((source) => {
                   const publishedDate = new Date(source.publishedAt);
                   const hoursAgo = Math.round((Date.now() - publishedDate.getTime()) / (1000 * 60 * 60));
@@ -223,16 +223,16 @@ export function StructuredAnswer({ answer, streamingTldr, streamingDetails, ques
                       href={source.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="group flex-shrink-0 inline-flex items-center gap-1.5 px-2 py-1.5 bg-gray-50 hover:bg-blue-50 border border-gray-200 hover:border-blue-400 rounded-lg transition-all"
+                      className="group inline-flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2 py-1 sm:py-1.5 bg-gray-50 hover:bg-blue-50 border border-gray-200 hover:border-blue-400 rounded-lg transition-all max-w-full"
                     >
                       <span className="flex-shrink-0 w-4 h-4 bg-blue-600 text-white rounded-full flex items-center justify-center font-bold text-[10px]">
                         {source.number}
                       </span>
-                      <div className="flex flex-col items-start">
-                        <span className="font-medium text-gray-900 group-hover:text-blue-600 whitespace-nowrap text-xs">
+                      <div className="flex flex-col items-start min-w-0">
+                        <span className="font-medium text-gray-900 group-hover:text-blue-600 text-[10px] sm:text-xs truncate max-w-[150px] sm:max-w-none sm:whitespace-nowrap">
                           {source.title}
                         </span>
-                        <span className="text-[10px] text-gray-500 whitespace-nowrap">
+                        <span className="text-[9px] sm:text-[10px] text-gray-500 whitespace-nowrap">
                           {source.source} • {timeAgo}
                         </span>
                       </div>

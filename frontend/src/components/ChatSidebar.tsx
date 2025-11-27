@@ -1,5 +1,6 @@
 import { useNavigate, useParams } from 'react-router-dom';
 import { useChat } from '../context/ChatContext';
+import { useSidebar } from '../App';
 import { ChatListItem } from '../types';
 
 function formatTimeAgo(dateString: string): string {
@@ -69,14 +70,17 @@ export function ChatSidebar() {
   const navigate = useNavigate();
   const { threadId } = useParams<{ threadId: string }>();
   const { chats, startNewChat, deleteChat } = useChat();
+  const { isOpen, setIsOpen } = useSidebar();
 
   const handleNewChat = () => {
     startNewChat();
     navigate('/chat');
+    setIsOpen(false);
   };
 
   const handleSelectChat = (chatThreadId: string) => {
     navigate(`/chat/${chatThreadId}`);
+    setIsOpen(false);
   };
 
   const handleDeleteChat = (chatThreadId: string) => {
@@ -87,12 +91,30 @@ export function ChatSidebar() {
   };
 
   return (
-    <aside className="w-72 bg-white border-r border-gray-200 flex flex-col h-full">
+    <aside
+      className={`
+        fixed md:relative inset-y-0 left-0 z-50
+        w-72 bg-white border-r border-gray-200 flex flex-col h-full
+        transform transition-transform duration-300 ease-in-out
+        ${isOpen ? 'translate-x-0' : '-translate-x-full'}
+        md:translate-x-0
+      `}
+    >
       {/* Header */}
-      <div className="p-4 border-b border-gray-200">
+      <div className="p-4 border-b border-gray-200 flex items-center gap-2">
+        {/* Close button for mobile */}
+        <button
+          onClick={() => setIsOpen(false)}
+          className="md:hidden p-2 -ml-2 text-gray-500 hover:text-gray-700"
+          aria-label="Close sidebar"
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
         <button
           onClick={handleNewChat}
-          className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition-colors"
+          className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition-colors"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
