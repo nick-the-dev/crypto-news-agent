@@ -1,7 +1,7 @@
 import { StructuredAnswer as StructuredAnswerType } from '../types';
 import { ConfidenceBadge } from './ConfidenceBadge';
 import ReactMarkdown from 'react-markdown';
-import { ReactNode, ComponentPropsWithoutRef } from 'react';
+import { ReactNode, ComponentPropsWithoutRef, useId } from 'react';
 
 interface Props {
   answer: StructuredAnswerType;
@@ -43,6 +43,7 @@ function processTextWithTags(text: string, onCitationClick: (num: number) => voi
       return (
         <button
           key={i}
+          type="button"
           onClick={() => onCitationClick(+citationMatch[1])}
           className="text-blue-600 hover:text-blue-800 font-semibold cursor-pointer"
         >
@@ -55,15 +56,47 @@ function processTextWithTags(text: string, onCitationClick: (num: number) => voi
 }
 
 export function StructuredAnswer({ answer, streamingTldr, streamingDetails, question }: Props) {
+  const instanceId = useId();
 
   const handleCitationClick = (num: number) => {
-    const element = document.getElementById(`source-${num}`);
-    element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // Use requestAnimationFrame to ensure DOM is ready
+    requestAnimationFrame(() => {
+      // Scope lookup to this component instance using the unique ID
+      const element = document.getElementById(`${instanceId}-source-${num}`);
+      if (!element) return;
 
-    element?.classList.add('ring-4', 'ring-blue-400');
-    setTimeout(() => {
-      element?.classList.remove('ring-4', 'ring-blue-400');
-    }, 2000);
+      // Find the scrollable parent container
+      let scrollParent: HTMLElement | null = element.parentElement;
+      while (scrollParent) {
+        const overflow = getComputedStyle(scrollParent).overflowY;
+        if (overflow === 'auto' || overflow === 'scroll') {
+          break;
+        }
+        scrollParent = scrollParent.parentElement;
+      }
+
+      if (scrollParent) {
+        // Calculate position relative to scroll container
+        const elementRect = element.getBoundingClientRect();
+        const containerRect = scrollParent.getBoundingClientRect();
+        const scrollTop = scrollParent.scrollTop + (elementRect.top - containerRect.top) - (containerRect.height / 2) + (elementRect.height / 2);
+
+        scrollParent.scrollTo({
+          top: scrollTop,
+          behavior: 'smooth'
+        });
+      } else {
+        // Fallback to scrollIntoView
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+
+      // Use inline styles for highlight since Tailwind may purge dynamic classes
+      element.style.boxShadow = '0 0 0 4px rgb(96, 165, 250)';
+      element.style.transition = 'box-shadow 0.3s ease';
+      setTimeout(() => {
+        element.style.boxShadow = '';
+      }, 2000);
+    });
   };
 
   // Render markdown with custom text processing for tags
@@ -186,7 +219,7 @@ export function StructuredAnswer({ answer, streamingTldr, streamingDetails, ques
                   return (
                     <a
                       key={source.number}
-                      id={`source-${source.number}`}
+                      id={`${instanceId}-source-${source.number}`}
                       href={source.url}
                       target="_blank"
                       rel="noopener noreferrer"
