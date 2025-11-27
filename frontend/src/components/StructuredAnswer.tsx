@@ -1,11 +1,57 @@
 import { StructuredAnswer as StructuredAnswerType } from '../types';
 import { ConfidenceBadge } from './ConfidenceBadge';
+import ReactMarkdown from 'react-markdown';
+import { ReactNode, ComponentPropsWithoutRef } from 'react';
 
 interface Props {
   answer: StructuredAnswerType;
   streamingTldr?: string;
   streamingDetails?: string;
   question?: string;
+}
+
+// Sentiment badge component
+function SentimentBadge({ type }: { type: 'bullish' | 'bearish' }) {
+  const isBullish = type === 'bullish';
+  return (
+    <span
+      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${
+        isBullish
+          ? 'bg-green-100 text-green-800 border border-green-300'
+          : 'bg-red-100 text-red-800 border border-red-300'
+      }`}
+    >
+      {isBullish ? '📈' : '📉'}
+      {isBullish ? 'Bullish' : 'Bearish'}
+    </span>
+  );
+}
+
+// Process text to replace [BULLISH], [BEARISH], and citations with React components
+function processTextWithTags(text: string, onCitationClick: (num: number) => void): ReactNode[] {
+  const parts = text.split(/(\[BULLISH\]|\[BEARISH\]|\[\d+\])/g);
+
+  return parts.map((part, i) => {
+    if (part === '[BULLISH]') {
+      return <SentimentBadge key={i} type="bullish" />;
+    }
+    if (part === '[BEARISH]') {
+      return <SentimentBadge key={i} type="bearish" />;
+    }
+    const citationMatch = part.match(/^\[(\d+)\]$/);
+    if (citationMatch) {
+      return (
+        <button
+          key={i}
+          onClick={() => onCitationClick(+citationMatch[1])}
+          className="text-blue-600 hover:text-blue-800 font-semibold cursor-pointer"
+        >
+          {part}
+        </button>
+      );
+    }
+    return part || null;
+  }).filter(Boolean);
 }
 
 export function StructuredAnswer({ answer, streamingTldr, streamingDetails, question }: Props) {
@@ -20,23 +66,62 @@ export function StructuredAnswer({ answer, streamingTldr, streamingDetails, ques
     }, 2000);
   };
 
-  const renderWithCitations = (content: string) => {
-    const parts = content.split(/(\[\d+\])/g);
-    return parts.map((part, i) => {
-      const match = part.match(/\[(\d+)\]/);
-      if (match) {
-        return (
-          <button
-            key={i}
-            onClick={() => handleCitationClick(+match[1])}
-            className="text-blue-600 hover:text-blue-800 font-semibold cursor-pointer"
-          >
-            {part}
-          </button>
-        );
-      }
-      return <span key={i}>{part}</span>;
-    });
+  // Render markdown with custom text processing for tags
+  const renderMarkdownContent = (content: string): ReactNode => {
+    return (
+      <ReactMarkdown
+        components={{
+          // Handle text nodes to process tags and citations
+          p: ({ children }: ComponentPropsWithoutRef<'p'>) => {
+            const processedChildren = processChildren(children);
+            return <p className="mb-3">{processedChildren}</p>;
+          },
+          strong: ({ children }: ComponentPropsWithoutRef<'strong'>) => (
+            <strong className="font-bold text-gray-900">{children}</strong>
+          ),
+          em: ({ children }: ComponentPropsWithoutRef<'em'>) => (
+            <em className="italic">{children}</em>
+          ),
+          ul: ({ children }: ComponentPropsWithoutRef<'ul'>) => (
+            <ul className="list-disc ml-6 my-3 space-y-1">{children}</ul>
+          ),
+          ol: ({ children }: ComponentPropsWithoutRef<'ol'>) => (
+            <ol className="list-decimal ml-6 my-3 space-y-1">{children}</ol>
+          ),
+          li: ({ children }: ComponentPropsWithoutRef<'li'>) => {
+            const processedChildren = processChildren(children);
+            return <li className="text-gray-700">{processedChildren}</li>;
+          },
+          h1: ({ children }: ComponentPropsWithoutRef<'h1'>) => (
+            <h3 className="text-xl font-bold text-gray-900 mt-6 mb-3">{children}</h3>
+          ),
+          h2: ({ children }: ComponentPropsWithoutRef<'h2'>) => (
+            <h4 className="text-lg font-bold text-gray-900 mt-5 mb-2">{children}</h4>
+          ),
+          h3: ({ children }: ComponentPropsWithoutRef<'h3'>) => (
+            <h5 className="text-base font-bold text-gray-900 mt-4 mb-2">{children}</h5>
+          ),
+        }}
+      >
+        {content}
+      </ReactMarkdown>
+    );
+  };
+
+  // Process children to handle text nodes with tags
+  const processChildren = (children: ReactNode): ReactNode => {
+    if (typeof children === 'string') {
+      return processTextWithTags(children, handleCitationClick);
+    }
+    if (Array.isArray(children)) {
+      return children.map((child, i) => {
+        if (typeof child === 'string') {
+          return <span key={i}>{processTextWithTags(child, handleCitationClick)}</span>;
+        }
+        return child;
+      });
+    }
+    return children;
   };
 
   return (
@@ -74,14 +159,14 @@ export function StructuredAnswer({ answer, streamingTldr, streamingDetails, ques
 
           {/* Details section */}
           {(streamingDetails || answer.details.content) && (
-            <div className="text-gray-700 whitespace-pre-wrap mb-6">
+            <div className="text-gray-700 mb-6">
               {streamingDetails ? (
                 <>
-                  {renderWithCitations(streamingDetails)}
+                  {renderMarkdownContent(streamingDetails)}
                   <span className="inline-block w-2 h-5 bg-blue-600 animate-pulse ml-1"></span>
                 </>
               ) : (
-                renderWithCitations(answer.details.content)
+                renderMarkdownContent(answer.details.content)
               )}
             </div>
           )}
