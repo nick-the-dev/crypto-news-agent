@@ -142,12 +142,14 @@ export function clearAnalysisCache(): void {
 /**
  * Semantic pre-filtering: Find relevant article IDs using LLM query expansion + vector search
  * Uses dynamic LLM-based understanding instead of hardcoded dictionaries
+ * @param callbacks - Optional LangFuse callbacks for tracing
  */
 async function findRelevantArticleIds(
   question: string,
   daysBack: number,
   embeddings: OpenRouterEmbeddings,
-  llm: ChatOpenAI
+  llm: ChatOpenAI,
+  callbacks?: CallbackHandler[]
 ): Promise<{ articleIds: Set<string>; isTopicSpecific: boolean; searchTerms: string[] }> {
   const stepId = debugLogger.stepStart('SEMANTIC_PREFILTER', 'Running semantic pre-filter', {
     question: question.substring(0, 50),
@@ -155,7 +157,8 @@ async function findRelevantArticleIds(
 
   try {
     // Use LLM to understand the query and generate search terms dynamically
-    const expansion = await expandQueryWithLLM(question, llm);
+    // Pass callbacks for LangFuse tracing
+    const expansion = await expandQueryWithLLM(question, llm, callbacks);
 
     if (!expansion.isTopicSpecific) {
       debugLogger.stepFinish(stepId, { isTopicSpecific: false, reason: 'LLM determined query is not topic-specific' });
@@ -247,6 +250,7 @@ export interface ArticleInsight {
   keyPoints: string[];
   entities: string[];
   fromCache: boolean;
+  titleEmbedding: number[] | null;  // Cached title embedding for fast semantic ranking
 }
 
 export interface AnalysisSource {
@@ -365,10 +369,11 @@ interface ArticleWithInsights {
   keyPoints: string[];
   entities: string[];
   analyzedAt: Date | null;
+  titleEmbedding: number[] | null;  // Cached title embedding for fast semantic ranking
 }
 
 /**
- * Fetch articles with their cached insights
+ * Fetch articles with their cached insights and title embeddings
  * @param daysBack - Number of days to look back
  * @param relevantIds - Optional set of article IDs to filter to (for topic-specific queries)
  */
@@ -379,31 +384,53 @@ async function fetchArticlesWithInsights(
   const dateFilter = new Date();
   dateFilter.setDate(dateFilter.getDate() - daysBack);
 
-  // Build where clause with optional ID filter
-  const whereClause: { publishedAt: { gte: Date }; id?: { in: string[] } } = {
-    publishedAt: { gte: dateFilter },
-  };
+  // Use raw SQL to fetch titleEmbedding (Prisma doesn't support vector type directly)
+  // Cast vector to text array format for parsing
+  let results: ArticleWithInsights[];
 
   if (relevantIds && relevantIds.size > 0) {
-    whereClause.id = { in: Array.from(relevantIds) };
+    const idArray = Array.from(relevantIds);
+    results = await prisma.$queryRaw<ArticleWithInsights[]>`
+      SELECT
+        id, title, summary, content, url, "publishedAt", sentiment,
+        "keyPoints", entities, "analyzedAt",
+        "titleEmbedding"::text as "titleEmbeddingText"
+      FROM "Article"
+      WHERE "publishedAt" >= ${dateFilter}
+        AND id = ANY(${idArray}::text[])
+      ORDER BY "publishedAt" DESC
+    `;
+  } else {
+    results = await prisma.$queryRaw<ArticleWithInsights[]>`
+      SELECT
+        id, title, summary, content, url, "publishedAt", sentiment,
+        "keyPoints", entities, "analyzedAt",
+        "titleEmbedding"::text as "titleEmbeddingText"
+      FROM "Article"
+      WHERE "publishedAt" >= ${dateFilter}
+      ORDER BY "publishedAt" DESC
+    `;
   }
 
-  return prisma.article.findMany({
-    where: whereClause,
-    select: {
-      id: true,
-      title: true,
-      summary: true,
-      content: true,
-      url: true,
-      publishedAt: true,
-      sentiment: true,
-      keyPoints: true,
-      entities: true,
-      analyzedAt: true,
-    },
-    orderBy: { publishedAt: 'desc' },
-  });
+  // Parse titleEmbedding from text format "[0.1,0.2,...]" to number[]
+  return results.map(r => ({
+    ...r,
+    titleEmbedding: parseTitleEmbedding((r as unknown as { titleEmbeddingText: string | null }).titleEmbeddingText),
+  }));
+}
+
+/**
+ * Parse title embedding from PostgreSQL vector text format to number array
+ */
+function parseTitleEmbedding(text: string | null): number[] | null {
+  if (!text) return null;
+  try {
+    // Format is "[0.1,0.2,0.3,...]"
+    const cleaned = text.replace(/^\[|\]$/g, '');
+    return cleaned.split(',').map(Number);
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -441,6 +468,7 @@ async function mapArticles(
         keyPoints: article.keyPoints,
         entities: article.entities,
         fromCache: true,
+        titleEmbedding: article.titleEmbedding,  // Pass through cached embedding
       });
       cachedCount++;
     } else {
@@ -489,6 +517,7 @@ async function mapArticles(
             keyPoints: parsed.keyPoints || [],
             entities: parsed.entities || [],
             fromCache: false,
+            titleEmbedding: article.titleEmbedding,  // Pass through cached embedding
           };
 
           // Cache the insight in database (fire and forget)
@@ -516,6 +545,7 @@ async function mapArticles(
             keyPoints: [],
             entities: [],
             fromCache: false,
+            titleEmbedding: article.titleEmbedding,  // Pass through cached embedding
           };
         }
       })
@@ -529,8 +559,8 @@ async function mapArticles(
 
 /**
  * Select top articles using semantic ranking
- * Uses embedding similarity + LLM-generated search terms for dynamic matching
- * No hardcoded dictionaries - fully semantic approach
+ * Uses CACHED title embeddings from database - no API calls needed!
+ * Falls back to batch embedding only for articles without cached embeddings
  */
 async function selectTopSourcesSemantic(
   insights: ArticleInsight[],
@@ -543,40 +573,52 @@ async function selectTopSourcesSemantic(
   const now = Date.now();
   const dayMs = 24 * 60 * 60 * 1000;
 
+  // Filter to articles with key points, limit to 50 for efficiency
+  const candidateInsights = insights.filter(i => i.keyPoints.length > 0).slice(0, 50);
+
+  // Count cached vs uncached embeddings
+  const withCachedEmb = candidateInsights.filter(i => i.titleEmbedding !== null);
+  const withoutCachedEmb = candidateInsights.filter(i => i.titleEmbedding === null);
+
   debugLogger.info('AGENT_ANALYSIS', 'Selecting top sources with semantic ranking', {
     originalQuery: query.substring(0, 50),
     searchTermsCount: searchTerms.length,
-    searchTerms: searchTerms.slice(0, 8),
+    candidateCount: candidateInsights.length,
+    cachedEmbeddings: withCachedEmb.length,
+    needsEmbedding: withoutCachedEmb.length,
   });
 
   // Create a set of search terms for quick lookup (lowercase)
   const searchTermSet = new Set(searchTerms.map(t => t.toLowerCase()));
 
-  // Compute title embeddings in batches for semantic similarity
-  const titlesToEmbed = insights.filter(i => i.keyPoints.length > 0).slice(0, 100);
+  // Build titleEmbeddings map from cached embeddings (zero API calls for these!)
   const titleEmbeddings = new Map<string, number[]>();
+  for (const insight of withCachedEmb) {
+    if (insight.titleEmbedding) {
+      titleEmbeddings.set(insight.id, insight.titleEmbedding);
+    }
+  }
 
-  // Batch embed titles for semantic matching
-  const BATCH_SIZE = 20;
-  for (let i = 0; i < titlesToEmbed.length; i += BATCH_SIZE) {
-    const batch = titlesToEmbed.slice(i, i + BATCH_SIZE);
-    const embedPromises = batch.map(async (insight) => {
-      try {
-        const embedding = await embeddings.embedQuery(insight.title);
-        return { id: insight.id, embedding };
-      } catch {
-        return { id: insight.id, embedding: null };
-      }
+  // Only generate embeddings for articles that don't have cached ones (should be rare after backfill)
+  if (withoutCachedEmb.length > 0) {
+    debugLogger.info('AGENT_ANALYSIS', 'Generating embeddings for uncached titles', {
+      count: withoutCachedEmb.length,
     });
-    const results = await Promise.all(embedPromises);
-    for (const { id, embedding } of results) {
-      if (embedding) titleEmbeddings.set(id, embedding);
+
+    // Use batch embedding for efficiency - ONE API call for all titles
+    const titlesToEmbed = withoutCachedEmb.map(i => i.title);
+    try {
+      const batchEmbeddings = await embeddings.embedDocuments(titlesToEmbed);
+      for (let i = 0; i < withoutCachedEmb.length; i++) {
+        titleEmbeddings.set(withoutCachedEmb[i].id, batchEmbeddings[i]);
+      }
+    } catch (err) {
+      debugLogger.warn('AGENT_ANALYSIS', 'Batch embedding failed for uncached titles', { error: err });
     }
   }
 
   // Score each article
-  const scored = insights
-    .filter(i => i.keyPoints.length > 0)
+  const scored = candidateInsights
     .map(insight => {
       let source = 'unknown';
       try { source = new URL(insight.url).hostname.replace('www.', ''); } catch {}
@@ -1019,7 +1061,8 @@ export async function createAnalysisAgent(
         question,
         daysBack,
         embeddings,
-        llm  // Pass LLM for dynamic query expansion
+        llm,
+        callbacks  // Pass callbacks for LangFuse tracing
       );
 
       // Create query embedding for semantic source ranking

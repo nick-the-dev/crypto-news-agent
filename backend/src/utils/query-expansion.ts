@@ -5,6 +5,7 @@
 
 import { ChatOpenAI } from '@langchain/openai';
 import { ChatPromptTemplate } from '@langchain/core/prompts';
+import { CallbackHandler } from '@langfuse/langchain';
 import { z } from 'zod';
 import { debugLogger } from './debug-logger';
 
@@ -37,21 +38,27 @@ Be comprehensive but focused. Only include terms directly relevant to the query.
 /**
  * Expand a query using LLM to generate relevant search terms
  * This replaces hardcoded dictionaries with dynamic understanding
+ * @param callbacks - Optional LangFuse callbacks for tracing
  */
 export async function expandQueryWithLLM(
   question: string,
-  llm: ChatOpenAI
+  llm: ChatOpenAI,
+  callbacks?: CallbackHandler[]
 ): Promise<QueryExpansion> {
   const stepId = debugLogger.stepStart('QUERY_EXPANSION', 'Expanding query with LLM', {
     question: question.substring(0, 50),
   });
 
   try {
+    // Use chain pattern to ensure LangFuse sessionId is set on traces
     const prompt = ChatPromptTemplate.fromTemplate(EXPANSION_PROMPT);
-    const formattedPrompt = await prompt.invoke({ question });
     const structuredLLM = llm.withStructuredOutput(QueryExpansionSchema);
+    const chain = prompt.pipe(structuredLLM);
 
-    const result = (await structuredLLM.invoke(formattedPrompt)) as QueryExpansion;
+    const result = (await chain.invoke(
+      { question },
+      callbacks ? { callbacks, runName: 'Query Expansion' } : undefined
+    )) as QueryExpansion;
 
     debugLogger.stepFinish(stepId, {
       isTopicSpecific: result.isTopicSpecific,

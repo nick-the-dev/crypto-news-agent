@@ -6,7 +6,8 @@ import { RawArticle } from '../types';
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 const LLM_MODEL = 'google/gemini-2.5-flash';
 const EMBEDDING_MODEL = 'qwen/qwen3-embedding-8b';
-const EMBEDDING_BATCH_SIZE = 100;
+const EMBEDDING_BATCH_SIZE = 100; // Max items per API call
+const EMBEDDING_PARALLEL_BATCHES = 5; // Process up to 5 batches in parallel
 const EMBEDDING_MAX_LENGTH = 8000;
 
 /**
@@ -259,17 +260,34 @@ export function createOpenRouterEmbeddings(): OpenRouterEmbeddings {
 
 /**
  * Generate embeddings for texts in batches (for ingestion)
+ * Processes multiple batches in parallel for better throughput
  */
 export async function generateEmbeddingsBatch(texts: string[]): Promise<number[][]> {
-  const embeddings = createOpenRouterEmbeddings();
-  const allEmbeddings: number[][] = [];
+  if (texts.length === 0) return [];
 
+  const embeddings = createOpenRouterEmbeddings();
+
+  // Split into batches of EMBEDDING_BATCH_SIZE (20)
+  const batches: string[][] = [];
   for (let i = 0; i < texts.length; i += EMBEDDING_BATCH_SIZE) {
     const batch = texts.slice(i, i + EMBEDDING_BATCH_SIZE).map(text =>
       text.length > EMBEDDING_MAX_LENGTH ? text.substring(0, EMBEDDING_MAX_LENGTH) : text
     );
-    const batchEmbeddings = await embeddings.embedDocuments(batch);
-    allEmbeddings.push(...batchEmbeddings);
+    batches.push(batch);
+  }
+
+  // Process batches in parallel groups of EMBEDDING_PARALLEL_BATCHES (5)
+  const allEmbeddings: number[][] = [];
+
+  for (let i = 0; i < batches.length; i += EMBEDDING_PARALLEL_BATCHES) {
+    const parallelBatches = batches.slice(i, i + EMBEDDING_PARALLEL_BATCHES);
+    const parallelResults = await Promise.all(
+      parallelBatches.map(batch => embeddings.embedDocuments(batch))
+    );
+    // Flatten results in order
+    for (const result of parallelResults) {
+      allEmbeddings.push(...result);
+    }
   }
 
   return allEmbeddings;

@@ -2,11 +2,14 @@ import { Prisma } from '@prisma/client';
 import { ChatOpenAI } from '@langchain/openai';
 import { RawArticle } from '../types';
 import { prisma } from '../utils/db';
-import { generateEmbeddingsBatch, generateSummariesBatch } from '../agents/llm';
+import { generateEmbeddingsBatch, generateSummariesBatch, createOpenRouterEmbeddings } from '../agents/llm';
 import { chunkArticle } from './chunker';
 import { debugLogger } from '../utils/debug-logger';
 import { processConcurrently, chunkArray } from '../utils/concurrency';
 import { analyzeArticleForIngestion } from '../agents/analysis';
+
+// Shared embeddings instance for title embedding generation
+const titleEmbeddings = createOpenRouterEmbeddings();
 
 // Shared LLM for analysis during ingestion
 let ingestionLLM: ChatOpenAI | null = null;
@@ -46,15 +49,22 @@ export async function processArticle(
       hasSummary: chunkData.some(c => c.isSummary)
     });
 
-    // Step 2: Generate embeddings
-    const embeddingStepId = debugLogger.stepStart('EMBEDDING_GENERATION', 'Generating embeddings for chunks', {
+    // Step 2: Generate embeddings for chunks AND title (batch together for efficiency)
+    const embeddingStepId = debugLogger.stepStart('EMBEDDING_GENERATION', 'Generating embeddings for chunks and title', {
       chunkCount: chunkData.length
     });
-    const embeddings = await generateEmbeddingsBatch(
-      chunkData.map(c => c.content)
-    );
+
+    // Batch title with chunks - one API call instead of separate calls
+    const textsToEmbed = [...chunkData.map(c => c.content), article.title];
+    const allEmbeddings = await generateEmbeddingsBatch(textsToEmbed);
+
+    // Split embeddings: chunks and title
+    const embeddings = allEmbeddings.slice(0, chunkData.length);
+    const titleEmbedding = allEmbeddings[chunkData.length];
+
     debugLogger.stepFinish(embeddingStepId, {
-      embeddingCount: embeddings.length
+      embeddingCount: embeddings.length,
+      hasTitleEmbedding: !!titleEmbedding
     });
 
     // Step 3: Save to database
@@ -63,21 +73,28 @@ export async function processArticle(
     });
 
     await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      // Create article
-      const createdArticle = await tx.article.create({
-        data: {
-          url: article.url,
-          title: article.title,
-          content: article.content,
-          summary: chunkData.find(c => c.isSummary)?.content || null,
-          source: article.source,
-          author: article.author,
-          publishedAt: article.publishedAt
-        }
-      });
+      // Create article with title embedding using raw SQL (Prisma doesn't support vector type directly)
+      const createdArticles = await tx.$queryRaw<Array<{ id: string }>>`
+        INSERT INTO "Article" (id, url, title, content, summary, source, author, "publishedAt", "createdAt", "titleEmbedding")
+        VALUES (
+          gen_random_uuid(),
+          ${article.url},
+          ${article.title},
+          ${article.content},
+          ${chunkData.find(c => c.isSummary)?.content || null},
+          ${article.source},
+          ${article.author || null},
+          ${article.publishedAt},
+          NOW(),
+          ${titleEmbedding ? `[${titleEmbedding.join(',')}]` : null}::vector
+        )
+        RETURNING id
+      `;
+      const createdArticle = { id: createdArticles[0].id };
 
-      debugLogger.info('DB_TRANSACTION', 'Article created', {
-        articleId: createdArticle.id
+      debugLogger.info('DB_TRANSACTION', 'Article created with title embedding', {
+        articleId: createdArticle.id,
+        hasTitleEmbedding: !!titleEmbedding
       });
 
       // Batch create chunks

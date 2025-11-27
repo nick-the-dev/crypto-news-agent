@@ -27,6 +27,9 @@ model Article {
   entities     String[]       // mentioned entities (coins, companies, people)
   analyzedAt   DateTime?      // when insights were last computed
 
+  // Cached title embedding for fast semantic source ranking (avoids API calls at query time)
+  titleEmbedding Unsupported("vector(4096)")?
+
   @@index([publishedAt])
   @@index([source])
   @@index([analyzedAt])
