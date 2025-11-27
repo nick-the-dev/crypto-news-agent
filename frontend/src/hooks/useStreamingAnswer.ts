@@ -107,23 +107,25 @@ export function useStreamingAnswer() {
           return { ...prev, status: 'Analyzing articles...', threadId: newThreadId || prev.threadId };
         }
 
-        case 'sources':
+        case 'sources': {
+          const sourcesData = event.data as unknown as ArticleSource[];
           return {
             ...prev,
-            sources: event.data,
+            sources: sourcesData,
             // Create initial answer object so component can render and show streaming
             answer: {
               tldr: '',
               details: { content: '', citations: [] },
               confidence: 0,
-              sources: event.data
+              sources: sourcesData
             }
           };
+        }
 
         case 'status':
-          return { ...prev, status: event.data.message };
+          return { ...prev, status: (event.data as { message: string }).message };
 
-        case 'token':
+        case 'token': {
           // Append token to streaming details for real-time streaming
           // Create placeholder answer if none exists so component renders
           const newAnswer = prev.answer || {
@@ -134,21 +136,24 @@ export function useStreamingAnswer() {
           };
           return {
             ...prev,
-            streamingDetails: prev.streamingDetails + event.data.token,
+            streamingDetails: prev.streamingDetails + (event.data as { token: string }).token,
             answer: newAnswer
           };
+        }
 
         case 'tldr':
-          return { ...prev, streamingTldr: event.data.content };
+          return { ...prev, streamingTldr: (event.data as { content: string }).content };
 
         case 'details':
-          return { ...prev, streamingDetails: event.data.content };
+          return { ...prev, streamingDetails: (event.data as { content: string }).content };
 
-        case 'structured':
+        case 'structured': {
+          const structuredData = event.data as unknown as Omit<StructuredAnswer, 'sources'>;
           return {
             ...prev,
-            answer: { ...event.data, sources: prev.sources }
+            answer: { ...structuredData, sources: prev.sources }
           };
+        }
 
         case 'done':
           return { ...prev, isStreaming: false, status: 'Complete' };
@@ -157,7 +162,7 @@ export function useStreamingAnswer() {
           return {
             ...prev,
             isStreaming: false,
-            error: event.data.error
+            error: (event.data as { error: string }).error
           };
 
         default:

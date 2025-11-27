@@ -79,3 +79,15 @@ model JobRun {
   @@index([startedAt])
   @@index([status])
 }
+
+model ConversationTurn {
+  id        String   @id @default(uuid())
+  threadId  String
+  role      String   // 'user' | 'assistant'
+  content   String   @db.Text
+  sources   Json?    // Store sources for clarification re-use
+  createdAt DateTime @default(now())
+
+  @@index([threadId, createdAt])
+  @@index([threadId])
+}

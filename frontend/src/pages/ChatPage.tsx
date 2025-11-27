@@ -36,13 +36,28 @@ function MessageBubble({ message }: { message: ChatMessage }) {
 export function ChatPage() {
   const { threadId } = useParams<{ threadId: string }>();
   const navigate = useNavigate();
-  const { currentChat, loadChat, createNewChat, addMessage, updateLastMessage } = useChat();
-  const { isStreaming, status, streamingTldr, streamingDetails, answer, error, askQuestion, setThreadId, reset } = useStreamingAnswer();
+  const { currentChat, loadChat, registerThread, addMessage, updateLastMessage } = useChat();
+  const { isStreaming, status, streamingTldr, streamingDetails, answer, error, threadId: backendThreadId, askQuestion, setThreadId } = useStreamingAnswer();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const initializedRef = useRef<string | null>(null);
   const userScrolledUpRef = useRef(false);
   const prevMessageCountRef = useRef(0);
+  const pendingQuestionRef = useRef<string | null>(null);
+  const lastUpdatedAnswerRef = useRef<string | null>(null);
+
+  // Refs to avoid dependency cycles in effects
+  const currentChatRef = useRef(currentChat);
+  const updateLastMessageRef = useRef(updateLastMessage);
+
+  // Keep refs in sync
+  useEffect(() => {
+    currentChatRef.current = currentChat;
+  }, [currentChat]);
+
+  useEffect(() => {
+    updateLastMessageRef.current = updateLastMessage;
+  }, [updateLastMessage]);
 
   // Load chat when threadId changes
   useEffect(() => {
@@ -51,10 +66,24 @@ export function ChatPage() {
       loadChat(threadId);
       setThreadId(threadId);
       userScrolledUpRef.current = false;
-      // Store current message count to detect new messages vs initial load
       prevMessageCountRef.current = 0;
     }
   }, [threadId, loadChat, setThreadId]);
+
+  // Handle URL update when backend returns a new threadId
+  useEffect(() => {
+    if (backendThreadId && !threadId && pendingQuestionRef.current) {
+      // Backend created a new thread - update URL and register it
+      navigate(`/chat/${backendThreadId}`, { replace: true });
+      registerThread(backendThreadId, pendingQuestionRef.current);
+
+      // Add the pending messages to the new thread
+      addMessage({ role: 'user', content: pendingQuestionRef.current }, backendThreadId);
+      addMessage({ role: 'assistant', content: '' }, backendThreadId);
+
+      pendingQuestionRef.current = null;
+    }
+  }, [backendThreadId, threadId, navigate, registerThread, addMessage]);
 
   // Track if user has scrolled up
   const handleScroll = () => {
@@ -87,34 +116,36 @@ export function ChatPage() {
 
   // Update chat context when streaming completes
   useEffect(() => {
-    if (!isStreaming && answer && currentChat) {
+    // Create a unique key for this answer to prevent duplicate updates
+    const answerKey = answer ? `${answer.details.content.substring(0, 50)}-${answer.confidence}` : null;
+
+    // Use refs to avoid dependency cycle (updateLastMessage updates currentChat)
+    if (!isStreaming && answer && currentChatRef.current && answerKey !== lastUpdatedAnswerRef.current) {
       // Update the last assistant message with the final answer
-      updateLastMessage({ answer, content: answer.details.content });
+      lastUpdatedAnswerRef.current = answerKey;
+      updateLastMessageRef.current({ answer, content: answer.details.content });
     }
-  }, [isStreaming, answer, currentChat, updateLastMessage]);
+  }, [isStreaming, answer]); // Removed currentChat and updateLastMessage - accessed via refs
 
   const handleSubmit = async (question: string) => {
-    let currentThreadId = threadId;
+    // Reset the answer tracking ref for new question
+    lastUpdatedAnswerRef.current = null;
 
-    // If no threadId, create a new chat
-    if (!currentThreadId) {
-      currentThreadId = createNewChat();
-      navigate(`/chat/${currentThreadId}`, { replace: true });
-      setThreadId(currentThreadId);
+    if (threadId) {
+      // Existing thread - add messages and send
+      addMessage({ role: 'user', content: question }, threadId);
+      addMessage({ role: 'assistant', content: '' }, threadId);
+      await askQuestion(question, threadId);
+    } else {
+      // New chat - send without threadId, backend will create one
+      // Store the question to add to chat after we get threadId
+      pendingQuestionRef.current = question;
+      await askQuestion(question);
     }
-
-    // Add user message to chat
-    addMessage({ role: 'user', content: question }, currentThreadId);
-
-    // Add placeholder assistant message
-    addMessage({ role: 'assistant', content: '' }, currentThreadId);
-
-    // Send question to API with threadId
-    await askQuestion(question, currentThreadId);
   };
 
-  // Show welcome screen if no chat selected
-  if (!threadId) {
+  // Show welcome screen if no chat selected and not waiting for a response
+  if (!threadId && !pendingQuestionRef.current && !isStreaming) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center p-8 bg-gradient-to-br from-blue-50 to-indigo-100">
         <div className="text-center max-w-2xl">
@@ -152,6 +183,54 @@ export function ChatPage() {
               <span className="font-medium text-gray-900">Regulation News</span>
               <p className="text-sm text-gray-500 mt-1">Policy and regulatory updates</p>
             </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Show loading/streaming state for new chats before URL updates
+  if (!threadId && (pendingQuestionRef.current || isStreaming)) {
+    return (
+      <div className="flex-1 flex flex-col h-full bg-gradient-to-br from-blue-50 to-indigo-100">
+        <header className="bg-white border-b border-gray-200 px-6 py-4">
+          <h2 className="font-semibold text-gray-900">New Chat</h2>
+        </header>
+
+        <div className="flex-1 overflow-y-auto p-6">
+          <div className="max-w-4xl mx-auto">
+            {/* User message */}
+            <div className="flex justify-end mb-4">
+              <div className="max-w-[85%] bg-indigo-600 text-white rounded-2xl rounded-br-md px-4 py-3">
+                <p className="whitespace-pre-wrap">{pendingQuestionRef.current}</p>
+              </div>
+            </div>
+
+            {/* Assistant response */}
+            <div className="flex justify-start mb-4">
+              <div className="max-w-[85%] bg-white rounded-2xl rounded-bl-md shadow-sm">
+                {answer ? (
+                  <div className="p-2">
+                    <StructuredAnswer
+                      answer={answer}
+                      streamingTldr={streamingTldr}
+                      streamingDetails={streamingDetails}
+                      question={pendingQuestionRef.current || ''}
+                    />
+                  </div>
+                ) : (
+                  <div className="p-4">
+                    <LoadingIndicator status={status} />
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white border-t border-gray-200 p-4">
+          <div className="max-w-4xl mx-auto">
+            <QuestionInput onSubmit={handleSubmit} disabled={isStreaming} />
           </div>
         </div>
       </div>

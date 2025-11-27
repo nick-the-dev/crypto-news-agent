@@ -68,11 +68,11 @@ function ChatItem({ chat, isActive, onSelect, onDelete }: ChatItemProps) {
 export function ChatSidebar() {
   const navigate = useNavigate();
   const { threadId } = useParams<{ threadId: string }>();
-  const { chats, createNewChat, deleteChat } = useChat();
+  const { chats, startNewChat, deleteChat } = useChat();
 
   const handleNewChat = () => {
-    const newThreadId = createNewChat();
-    navigate(`/chat/${newThreadId}`);
+    startNewChat();
+    navigate('/chat');
   };
 
   const handleSelectChat = (chatThreadId: string) => {

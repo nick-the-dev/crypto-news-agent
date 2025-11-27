@@ -7,6 +7,7 @@ import { handleAsk } from './api/ask';
 import { healthCheck } from './api/health';
 import { disconnectPrisma } from './utils/db';
 import jobStatusRouter from './api/job-status';
+import conversationsRouter from './api/conversations';
 import { startJobScheduler, gracefulShutdown } from './jobs/scheduler';
 
 // Load .env from backend folder first, then override with root .env
@@ -34,6 +35,7 @@ app.use(requestLogger);
 app.get('/health', healthCheck);
 app.post('/ask', rateLimiter, handleAsk);
 app.use('/api/job-status', jobStatusRouter);
+app.use('/api/conversations', conversationsRouter);
 
 // Serve static files from frontend build (when running in production)
 if (process.env.NODE_ENV === 'production') {

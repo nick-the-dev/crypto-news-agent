@@ -1,9 +1,13 @@
 import { StateGraph, END, START, Annotation, MemorySaver, messagesStateReducer } from '@langchain/langgraph';
+import { PostgresSaver } from '@langchain/langgraph-checkpoint-postgres';
 import { ChatOpenAI } from '@langchain/openai';
 import { BaseMessage, HumanMessage, AIMessage } from '@langchain/core/messages';
-import { RetrievalOutput, ValidationOutput, FinalResponse } from '../schemas';
+import { ChatPromptTemplate } from '@langchain/core/prompts';
+import { RetrievalOutput, ValidationOutput, FinalResponse, Source } from '../schemas';
 import { AnalysisOutput, ProgressCallback, TokenStreamCallback } from './analysis';
 import { detectIntent, QueryIntent } from '../search/intent-detector';
+import { detectFollowup, FollowupType, FollowupResult } from '../search/followup-detector';
+import { getConversationContext, ConversationContext } from '../utils/conversation-store';
 import { debugLogger } from '../utils/debug-logger';
 import {
   ClaimMatch,
@@ -14,8 +18,33 @@ import {
 } from '../search/claim-evidence-finder';
 import { createOpenRouterEmbeddings } from './llm';
 
-// Singleton checkpointer for conversation memory
-const checkpointer = new MemorySaver();
+// Initialize PostgreSQL checkpointer for persistent conversation memory
+let checkpointer: PostgresSaver | MemorySaver = new MemorySaver();
+let checkpointerInitialized = false;
+
+async function initializeCheckpointer(): Promise<PostgresSaver | MemorySaver> {
+  if (checkpointerInitialized) {
+    return checkpointer;
+  }
+
+  try {
+    const dbUrl = process.env.DATABASE_URL;
+    if (dbUrl) {
+      const pgSaver = PostgresSaver.fromConnString(dbUrl);
+      // Create the checkpoint tables if they don't exist
+      await pgSaver.setup();
+      checkpointer = pgSaver;
+      debugLogger.info('SUPERVISOR', 'PostgresSaver initialized with checkpoint tables');
+    } else {
+      debugLogger.warn('SUPERVISOR', 'DATABASE_URL not set, using MemorySaver (non-persistent)');
+    }
+  } catch (error) {
+    debugLogger.warn('SUPERVISOR', 'Failed to initialize PostgresSaver, using MemorySaver', { error });
+  }
+
+  checkpointerInitialized = true;
+  return checkpointer;
+}
 
 /**
  * Define the state for the multi-agent workflow
@@ -38,6 +67,10 @@ const AgentState = Annotation.Root({
   // Smart citation recovery state
   analysisRetryCount: Annotation<number>,
   claimMatches: Annotation<ClaimMatch[] | null>,
+  // Follow-up detection state
+  followupType: Annotation<FollowupType | null>,
+  followupResult: Annotation<FollowupResult | null>,
+  conversationContext: Annotation<ConversationContext | null>,
 });
 
 type AgentStateType = typeof AgentState.State;
@@ -58,17 +91,168 @@ export function createSupervisor(
   let currentTokenCallback: TokenStreamCallback | undefined;
 
   /**
+   * Node: Follow-up Router
+   * Detects if the message is a follow-up (clarification/refinement) or new query
+   * This runs first to determine how to handle the message
+   */
+  async function followupRouterNode(state: AgentStateType): Promise<Partial<AgentStateType>> {
+    const threadId = state.conversationContext?.threadId;
+    debugLogger.info('SUPERVISOR', 'Detecting follow-up type', {
+      question: state.question,
+      hasContext: !!state.conversationContext,
+      historyLength: state.conversationContext?.turns.length ?? 0,
+    });
+
+    // Get conversation context from database if we have a threadId
+    let context = state.conversationContext;
+    if (threadId && (!context || context.turns.length === 0)) {
+      context = await getConversationContext(threadId);
+      debugLogger.info('SUPERVISOR', 'Loaded conversation context from database', {
+        threadId,
+        turnsLoaded: context.turns.length,
+      });
+    }
+
+    // If no context, this is definitely a new query
+    if (!context || context.turns.length === 0) {
+      debugLogger.info('SUPERVISOR', 'No conversation history, treating as new query');
+      return {
+        followupType: 'new_query',
+        followupResult: {
+          type: 'new_query',
+          confidence: 1.0,
+          reasoning: 'First message in conversation',
+        },
+        conversationContext: context,
+      };
+    }
+
+    // Detect follow-up type using the LLM if available
+    const followupResult = await detectFollowup(state.question, context, intentLLM);
+
+    debugLogger.info('SUPERVISOR', 'Follow-up type detected', {
+      type: followupResult.type,
+      confidence: followupResult.confidence,
+      reasoning: followupResult.reasoning,
+      refinedQuery: followupResult.refinedQuery,
+    });
+
+    return {
+      followupType: followupResult.type,
+      followupResult,
+      conversationContext: context,
+    };
+  }
+
+  /**
+   * Node: Clarification
+   * Handles clarification requests by generating a response from conversation context
+   * No new search needed - uses previous answer and sources
+   */
+  async function clarificationNode(state: AgentStateType): Promise<Partial<AgentStateType>> {
+    debugLogger.info('SUPERVISOR', 'Handling clarification request', {
+      question: state.question,
+      hasContext: !!state.conversationContext,
+    });
+
+    if (!state.conversationContext || state.conversationContext.turns.length === 0) {
+      throw new Error('No conversation context available for clarification');
+    }
+
+    // Get the last assistant turn for sources
+    const lastAssistantTurn = [...state.conversationContext.turns]
+      .reverse()
+      .find(t => t.role === 'assistant');
+
+    const sources = lastAssistantTurn?.sources || [];
+
+    // Build context from conversation history
+    const historyContext = state.conversationContext.turns
+      .slice(-4) // Last 4 turns (2 exchanges)
+      .map(t => `${t.role.toUpperCase()}: ${t.content}`)
+      .join('\n\n');
+
+    // Use LLM to generate clarification response
+    const clarificationLLM = intentLLM || new ChatOpenAI({
+      modelName: 'gpt-4o-mini',
+      temperature: 0.3,
+    });
+
+    const clarificationPrompt = ChatPromptTemplate.fromMessages([
+      ['system', `You are a helpful crypto news assistant. The user is asking for clarification about your previous response.
+
+Based on the conversation history, answer their clarification question. Be concise and helpful.
+If they're asking "are you sure?" or similar, explain your confidence and cite specific sources.
+If they're asking "why?" or "how?", provide more detail from the context.
+
+Use [Source N] citations when referencing information. Only use sources from the previous response.`],
+      ['human', `CONVERSATION HISTORY:
+{history}
+
+USER'S CLARIFICATION QUESTION: {question}
+
+Provide a helpful clarification response:`],
+    ]);
+
+    const chain = clarificationPrompt.pipe(clarificationLLM);
+    const response = await chain.invoke({
+      history: historyContext,
+      question: state.question,
+    });
+
+    const clarificationAnswer = typeof response.content === 'string'
+      ? response.content
+      : JSON.stringify(response.content);
+
+    debugLogger.info('SUPERVISOR', 'Clarification response generated', {
+      answerLength: clarificationAnswer.length,
+      sourcesCount: sources.length,
+    });
+
+    // Return as final answer with existing sources
+    return {
+      finalAnswer: clarificationAnswer,
+      retrievalOutput: {
+        summary: clarificationAnswer,
+        sources: sources.map(s => ({
+          title: s.title,
+          url: s.url,
+          publishedAt: s.publishedAt,
+          quote: s.quote || '',
+          relevance: s.relevance || 0,
+        })),
+        citationCount: sources.length,
+      },
+      validationOutput: {
+        isValid: true,
+        confidence: 90, // High confidence for clarifications using existing sources
+        citationsVerified: sources.length,
+        citationsTotal: sources.length,
+        issues: [],
+      },
+      messages: [new AIMessage(clarificationAnswer)],
+    };
+  }
+
+  /**
    * Node: Intent Router
    * Detects query intent and routes to appropriate agent
    * Uses LLM for accurate classification when available
    */
   async function intentRouterNode(state: AgentStateType): Promise<Partial<AgentStateType>> {
-    debugLogger.info('SUPERVISOR', 'Detecting query intent', { question: state.question });
+    // If this is a refinement, use the refined query
+    const queryToAnalyze = state.followupResult?.refinedQuery || state.question;
+
+    debugLogger.info('SUPERVISOR', 'Detecting query intent', {
+      question: state.question,
+      refinedQuery: state.followupResult?.refinedQuery,
+      queryToAnalyze,
+    });
 
     // Use LLM-based detection if available, otherwise fall back to fast detection
     const intentResult = intentLLM
-      ? await detectIntent(state.question, intentLLM)
-      : (await import('../search/intent-detector')).detectIntentFast(state.question);
+      ? await detectIntent(queryToAnalyze, intentLLM)
+      : (await import('../search/intent-detector')).detectIntentFast(queryToAnalyze);
 
     debugLogger.info('SUPERVISOR', 'Intent detected', {
       intent: intentResult.intent,
@@ -77,9 +261,11 @@ export function createSupervisor(
       timeframeDays: intentResult.timeframeDays,
     });
 
+    // Update the question if we have a refined query
     return {
       intent: intentResult.intent,
       timeframeDays: intentResult.timeframeDays || 7,
+      question: queryToAnalyze, // Use refined query for downstream processing
     };
   }
 
@@ -327,6 +513,24 @@ export function createSupervisor(
   }
 
   /**
+   * Conditional edge: Route based on follow-up type
+   * - clarification: go to clarification node (no search)
+   * - refinement/new_query: go to intent router (then search)
+   */
+  function routeByFollowup(state: AgentStateType): string {
+    const followupType = state.followupType || 'new_query';
+
+    debugLogger.info('SUPERVISOR', 'Routing by follow-up type', { followupType });
+
+    if (followupType === 'clarification') {
+      return 'clarification';
+    }
+
+    // Both 'new_query' and 'refinement' go through intent detection
+    return 'intentRouter';
+  }
+
+  /**
    * Conditional edge: Route based on query intent
    */
   function routeByIntent(state: AgentStateType): string {
@@ -398,9 +602,18 @@ export function createSupervisor(
 
   /**
    * Build the state graph
+   *
+   * Flow:
+   * START → followupRouter → [clarification | intentRouter]
+   *   ├─ clarification → finalize → END
+   *   └─ intentRouter → [retrieval | analysis]
+   *        ├─ retrieval → validation → [retry | finalize] → END
+   *        └─ analysis → analysisValidation → [findEvidence | finalizeAnalysis] → END
    */
   const workflow = new StateGraph(AgentState)
     // Add nodes
+    .addNode('followupRouter', followupRouterNode)
+    .addNode('clarification', clarificationNode)
     .addNode('intentRouter', intentRouterNode)
     .addNode('retrieval', retrievalNode)
     .addNode('validation', validationNode)
@@ -411,7 +624,15 @@ export function createSupervisor(
     .addNode('finalizeAnalysis', finalizeAnalysisNode)
 
     // Define edges
-    .addEdge(START, 'intentRouter')
+    // Entry point: follow-up detection
+    .addEdge(START, 'followupRouter')
+    .addConditionalEdges('followupRouter', routeByFollowup, {
+      clarification: 'clarification',
+      intentRouter: 'intentRouter',
+    })
+    // Clarification path goes directly to finalize
+    .addEdge('clarification', 'finalize')
+    // Intent router routes to retrieval or analysis
     .addConditionalEdges('intentRouter', routeByIntent, {
       retrieval: 'retrieval',
       analysis: 'analysis',
@@ -435,10 +656,10 @@ export function createSupervisor(
     .addEdge('findClaimEvidence', 'analysisValidation')  // Re-validate after evidence search
     .addEdge('finalizeAnalysis', END);
 
-  // Compile with checkpointer for conversation memory
-  const compiledGraph = workflow.compile({ checkpointer });
+  // Lazy-compiled graph (initialized on first invoke)
+  let compiledGraph: ReturnType<typeof workflow.compile> | null = null;
 
-  debugLogger.stepFinish(stepId, { nodes: 8, edges: 10 });
+  debugLogger.stepFinish(stepId, { nodes: 10, edges: 12 });
 
   /**
    * Invoke the supervisor with a question
@@ -463,6 +684,13 @@ export function createSupervisor(
     currentTokenCallback = onToken;
 
     try {
+      // Lazy-initialize checkpointer and compile graph on first invoke
+      if (!compiledGraph) {
+        const activeCheckpointer = await initializeCheckpointer();
+        compiledGraph = workflow.compile({ checkpointer: activeCheckpointer });
+        debugLogger.info('SUPERVISOR', 'Workflow compiled with checkpointer');
+      }
+
       // Create config with thread_id for conversation memory
       const config = threadId
         ? { configurable: { thread_id: threadId } }
@@ -482,6 +710,10 @@ export function createSupervisor(
         // Smart citation recovery
         analysisRetryCount: 0,
         claimMatches: null,
+        // Follow-up detection - pass threadId so followupRouter can load context
+        followupType: null,
+        followupResult: null,
+        conversationContext: threadId ? { threadId, turns: [] } : null,
       };
 
       // Execute the workflow with config for memory persistence

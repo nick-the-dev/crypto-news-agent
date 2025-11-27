@@ -13,6 +13,7 @@ import { debugLogger } from '../utils/debug-logger';
 import { detectIntentFast } from '../search/intent-detector';
 import { FinalResponse } from '../schemas';
 import { validateUserQuestion, sanitizeForLog } from '../utils/sanitize';
+import { saveUserTurn, saveAssistantTurn } from '../utils/conversation-store';
 
 /**
  * Set security headers for SSE responses
@@ -133,6 +134,13 @@ export async function handleAsk(req: Request, res: Response): Promise<void> {
   const isAnalysisQuery = fastIntent.intent === 'analysis';
   const estimatedTimeframe = fastIntent.timeframeDays || 7;
 
+  // Use provided threadId for conversation continuity, or generate new one
+  // IMPORTANT: This is used as LangFuse sessionId to group all messages in a conversation
+  const threadId = requestThreadId || `thread-${Date.now()}`;
+
+  // Save user turn to conversation history (non-blocking)
+  saveUserTurn(threadId, question).catch(() => { /* ignore save errors */ });
+
   // Check analysis cache BEFORE moderation (saves ~800ms for cached queries)
   if (isAnalysisQuery) {
     const cachedAnalysis = await checkAnalysisCacheOnly(question, estimatedTimeframe);
@@ -143,10 +151,10 @@ export async function handleAsk(req: Request, res: Response): Promise<void> {
       });
 
       // Create LangFuse handler for cached response tracking
+      // Use threadId as sessionId to group all messages in the same conversation
       const questionPreview = question.substring(0, 40).replace(/[^a-zA-Z0-9\s]/g, '').trim();
-      const sessionId = `ask-${Date.now()}`;
       const langfuseHandler = createLangfuseHandler({
-        sessionId,
+        sessionId: threadId,
         tags: ['crypto-news-agent', 'ask-endpoint', 'cached'],
       });
 
@@ -216,6 +224,9 @@ export async function handleAsk(req: Request, res: Response): Promise<void> {
       res.write(`event: done\n`);
       res.write(`data: ${JSON.stringify({ processingTime: Date.now() - startTime, cached: true })}\n\n`);
       res.end();
+
+      // Save assistant turn to conversation history (non-blocking)
+      saveAssistantTurn(threadId, result.answer, result.sources).catch(() => { /* ignore save errors */ });
 
       // Close LangFuse trace
       await langfuseHandler.handleChainEnd({ answer: result.answer, confidence: result.confidence, cached: true });
@@ -293,9 +304,6 @@ export async function handleAsk(req: Request, res: Response): Promise<void> {
   // Store handler reference for proper flushing
   let langfuseHandler: ReturnType<typeof createLangfuseHandler> | null = null;
 
-  // Use provided threadId for conversation continuity, or generate new one
-  const threadId = requestThreadId || `thread-${Date.now()}`;
-
   try {
     const startTime = Date.now();
 
@@ -318,17 +326,14 @@ export async function handleAsk(req: Request, res: Response): Promise<void> {
       res.write(`data: ${JSON.stringify({ message: "Searching crypto news..." })}\n\n`);
     }
 
-    // Create a readable trace name from the question
-    const questionPreview = question.substring(0, 40).replace(/[^a-zA-Z0-9\s]/g, '').trim();
-    const sessionId = `ask-${Date.now()}`;
-
     // Initialize LangChain
     const llm = createOpenRouterLLM();
     const embeddings = createOpenRouterEmbeddings();
 
     // LangFuse handler options for this request
+    // Use threadId as sessionId to group all messages in the same conversation
     const langfuseOptions = {
-      sessionId,
+      sessionId: threadId,
       tags: ['crypto-news-agent', 'ask-endpoint'],
     };
 
@@ -351,8 +356,7 @@ export async function handleAsk(req: Request, res: Response): Promise<void> {
 
     debugLogger.info('ASK_REQUEST', 'Executing multi-agent supervisor', {
       question,
-      sessionId,
-      threadId,
+      threadId, // Also used as LangFuse sessionId
     });
 
     // Create progress and token streamers for analysis queries
@@ -437,6 +441,9 @@ export async function handleAsk(req: Request, res: Response): Promise<void> {
     res.write(`event: done\n`);
     res.write(`data: ${JSON.stringify({ processingTime })}\n\n`);
     res.end();
+
+    // Save assistant turn to conversation history (non-blocking)
+    saveAssistantTurn(threadId, result.answer, result.sources).catch(() => { /* ignore save errors */ });
 
     debugLogger.stepFinish(requestStepId, {
       processingTime,
