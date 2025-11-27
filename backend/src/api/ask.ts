@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { createOpenRouterLLM, createOpenRouterEmbeddings, createLangfuseHandler } from '../agents/llm';
+import { createOpenRouterLLM, createOpenRouterEmbeddings, createLangfuseHandler, flushLangfuseTraces, registerHandlerForFlush } from '../agents/llm';
 import { createSearchNewsTool } from '../tools/searchNews';
 import { createValidateCitationsTool } from '../tools/validateCitations';
 import { createRetrievalAgent } from '../agents/retrieval';
@@ -274,6 +274,9 @@ export async function handleAsk(req: Request, res: Response): Promise<void> {
     debugLogger.warn('ASK_REQUEST', 'Client closed connection (stream aborted)', {});
   });
 
+  // Store handler reference for proper flushing
+  let langfuseHandler: ReturnType<typeof createLangfuseHandler> | null = null;
+
   try {
     const startTime = Date.now();
 
@@ -304,17 +307,22 @@ export async function handleAsk(req: Request, res: Response): Promise<void> {
     const llm = createOpenRouterLLM();
     const embeddings = createOpenRouterEmbeddings();
 
-    // Create LangFuse handler - auto-links to active observation context
-    const langfuseHandler = createLangfuseHandler({
+    // LangFuse handler options for this request
+    const langfuseOptions = {
       sessionId,
       tags: ['crypto-news-agent', 'ask-endpoint'],
-    });
+    };
+
+    // Create handler for all agents (shared handler maintains sessionId)
+    langfuseHandler = createLangfuseHandler(langfuseOptions);
+    registerHandlerForFlush(langfuseHandler);
 
     // Create tools
     const searchTool = createSearchNewsTool(embeddings, llm);
     const validateTool = createValidateCitationsTool();
 
     // Create agents with LangFuse callbacks
+    // All agents use the same handler to ensure consistent sessionId tracking
     const retrievalAgent = await createRetrievalAgent(llm, searchTool, langfuseHandler);
     const validationAgent = await createValidationAgent(llm, validateTool, langfuseHandler);
     const analysisAgent = await createAnalysisAgent(llm, langfuseHandler);
@@ -451,6 +459,12 @@ export async function handleAsk(req: Request, res: Response): Promise<void> {
   } finally {
     // Resume background ingestion after request completes
     ingestionQueue.resume();
+
+    // Flush LangFuse traces to ensure they're sent before response completes
+    // IMPORTANT: Pass the actual handler to flush its internal client, not a separate instance
+    if (langfuseHandler) {
+      await flushLangfuseTraces(langfuseHandler).catch(() => {/* ignore flush errors */});
+    }
   }
 }
 

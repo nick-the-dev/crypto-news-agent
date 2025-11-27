@@ -40,16 +40,30 @@ export function calculateCost(
 }
 
 /**
+ * LangFuse handler options
+ */
+export interface LangfuseHandlerOptions {
+  sessionId?: string;
+  userId?: string;
+  tags?: string[];
+}
+
+/**
+ * Factory function type for creating fresh LangFuse handlers
+ * Each call returns a new handler with consistent sessionId/tags
+ */
+export type LangfuseHandlerFactory = () => CallbackHandler;
+
+/**
  * Create a LangFuse callback handler for tracing LLM calls.
  * Auto-links to any active observation context from @langfuse/tracing.
  * Credentials are read from env vars: LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LANGFUSE_HOST
  */
-export function createLangfuseHandler(options?: {
-  sessionId?: string;
-  userId?: string;
-  tags?: string[];
-}): CallbackHandler {
+export function createLangfuseHandler(options?: LangfuseHandlerOptions): CallbackHandler {
   const handler = new CallbackHandler({
+    publicKey: process.env.LANGFUSE_PUBLIC_KEY,
+    secretKey: process.env.LANGFUSE_SECRET_KEY,
+    baseUrl: process.env.LANGFUSE_HOST || 'https://us.cloud.langfuse.com',
     sessionId: options?.sessionId,
     userId: options?.userId,
     tags: options?.tags || ['crypto-news-agent'],
@@ -61,6 +75,83 @@ export function createLangfuseHandler(options?: {
   });
 
   return handler;
+}
+
+/**
+ * Create a factory function that generates fresh LangFuse handlers with consistent config.
+ * This is useful for agents that make multiple LLM calls - each call gets a fresh handler
+ * but all handlers share the same sessionId/tags for proper trace grouping.
+ */
+export function createLangfuseHandlerFactory(options?: LangfuseHandlerOptions): LangfuseHandlerFactory {
+  return () => createLangfuseHandler(options);
+}
+
+/**
+ * Store active handlers for proper flushing
+ * IMPORTANT: Each CallbackHandler has its own internal Langfuse client.
+ * We must flush the handler directly, NOT a separate Langfuse instance.
+ */
+const activeHandlers = new Set<CallbackHandler>();
+
+/**
+ * Register a handler for proper flushing later
+ */
+export function registerHandlerForFlush(handler: CallbackHandler): void {
+  activeHandlers.add(handler);
+}
+
+/**
+ * Flush all pending LangFuse traces from registered handlers.
+ * Call this at the end of a request to ensure traces are sent before response completes.
+ *
+ * IMPORTANT: The CallbackHandler's internal client queues events asynchronously.
+ * We need to either:
+ * 1. Call shutdownAsync() on the handler (if available)
+ * 2. Access the internal client and flush it
+ * 3. Add a delay to allow the async send to complete
+ */
+export async function flushLangfuseTraces(handler?: CallbackHandler): Promise<void> {
+  try {
+    // If a specific handler is provided, try to flush it
+    if (handler) {
+      // Try calling shutdownAsync if it exists on the handler
+      // Note: This method might exist at runtime even if not in TypeScript types
+      const handlerAny = handler as any;
+      if (typeof handlerAny.shutdownAsync === 'function') {
+        await handlerAny.shutdownAsync();
+        return;
+      }
+      if (typeof handlerAny.flushAsync === 'function') {
+        await handlerAny.flushAsync();
+        return;
+      }
+      // Try accessing internal langfuse client
+      if (handlerAny.langfuse && typeof handlerAny.langfuse.flushAsync === 'function') {
+        await handlerAny.langfuse.flushAsync();
+        return;
+      }
+    }
+
+    // Try flushing all registered handlers
+    for (const h of activeHandlers) {
+      const hAny = h as any;
+      if (typeof hAny.shutdownAsync === 'function') {
+        await hAny.shutdownAsync();
+      } else if (typeof hAny.flushAsync === 'function') {
+        await hAny.flushAsync();
+      } else if (hAny.langfuse && typeof hAny.langfuse.flushAsync === 'function') {
+        await hAny.langfuse.flushAsync();
+      }
+    }
+    activeHandlers.clear();
+
+    // Fallback: Add a small delay to allow async event sending
+    // The Langfuse SDK sends events in batches asynchronously
+    await new Promise(resolve => setTimeout(resolve, 500));
+  } catch (error) {
+    // Silently ignore flush errors - don't break the request
+    console.warn('Failed to flush LangFuse traces:', error);
+  }
 }
 
 /**

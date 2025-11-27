@@ -1,4 +1,5 @@
 import { ChatOpenAI } from '@langchain/openai';
+import { ChatPromptTemplate } from '@langchain/core/prompts';
 import { CallbackHandler } from '@langfuse/langchain';
 import { prisma } from '../utils/db';
 import { debugLogger } from '../utils/debug-logger';
@@ -177,6 +178,7 @@ export interface AnalysisOutput {
   disclaimer: string;
   confidence: number;
   topSources: AnalysisSource[];
+  citationCount: number;  // Number of [Source N] citations in summary
 }
 
 export type ProgressCallback = (progress: {
@@ -189,6 +191,19 @@ export type ProgressCallback = (progress: {
 export type TokenStreamCallback = (token: string) => void;
 
 const DISCLAIMER = '⚠️ This analysis is based on news coverage and does not constitute financial advice. Past trends do not guarantee future results.';
+
+/**
+ * Count unique [Source N] citations in text
+ */
+function countCitations(text: string): number {
+  const citationRegex = /\[Source (\d+)\]/g;
+  const citations = new Set<number>();
+  let match;
+  while ((match = citationRegex.exec(text)) !== null) {
+    citations.add(parseInt(match[1], 10));
+  }
+  return citations.size;
+}
 
 /**
  * Single article analysis result (for pre-analysis during ingestion)
@@ -217,6 +232,9 @@ Sentiment Distribution:
 - Bearish: {bearishPercent}%
 - Neutral: {neutralPercent}%
 
+Top Sources (cite these using [Source N] format):
+{sourcesForCitation}
+
 Top Article Insights:
 {insights}
 
@@ -229,11 +247,17 @@ CRITICAL INSTRUCTIONS:
 4. If articles mention the queried asset in their titles but not in key points, acknowledge and analyze those articles
 5. NEVER claim an asset wasn't mentioned if it appears in article titles or entities
 
+CITATION REQUIREMENTS:
+- You MUST cite sources using [Source N] format where N matches the source number above
+- Every factual claim should have at least one citation
+- Use the source that best supports each claim
+- Include multiple citations for well-supported points (e.g., [Source 1][Source 3])
+
 Provide a comprehensive analysis including:
-1. Direct response to the user's question with specific information about queried assets
-2. Overall market sentiment assessment for the queried asset (if applicable)
-3. Key trends identified across relevant articles
-4. Notable entities and events related to the query
+1. Direct response to the user's question with specific information about queried assets [cite sources]
+2. Overall market sentiment assessment for the queried asset (if applicable) [cite sources]
+3. Key trends identified across relevant articles [cite sources]
+4. Notable entities and events related to the query [cite sources]
 5. A balanced outlook with appropriate caveats
 
 Format your response as a well-structured analysis that directly addresses the user's question.`;
@@ -341,15 +365,15 @@ async function mapArticles(
       batch.map(async (article) => {
         try {
           const content = article.summary || article.content.substring(0, 1500);
-          const prompt = MAP_PROMPT
-            .replace('{title}', article.title)
-            .replace('{content}', content);
 
-          // Pass callbacks for LangFuse tracing
-          const response = await llm.invoke(prompt, {
-            callbacks,
-            runName: `Analyze: ${article.title.substring(0, 30)}`,
-          });
+          // Use chain pattern to ensure CallbackHandler receives handleChainStart
+          // which properly sets sessionId on the trace
+          const mapPrompt = ChatPromptTemplate.fromTemplate(MAP_PROMPT);
+          const chain = mapPrompt.pipe(llm);
+          const response = await chain.invoke(
+            { title: article.title, content },
+            { callbacks, runName: `Analyze: ${article.title.substring(0, 30)}` }
+          );
 
           const text = typeof response.content === 'string' ? response.content : String(response.content);
           const parsed = JSON.parse(text.replace(/```json?\n?|\n?```/g, '').trim());
@@ -517,23 +541,43 @@ async function reduceInsights(
     .map((i) => `- [${i.sentiment.toUpperCase()}] ${i.title}: ${i.keyPoints.slice(0, 2).join('; ')}`)
     .join('\n');
 
+  // Select top sources BEFORE generating summary so they can be cited
+  const topSources = selectTopSources(insights, question, 20);
+
+  // Format sources for citation in prompt (numbered list)
+  const sourcesForCitation = topSources
+    .slice(0, 10)  // Limit to top 10 for citation
+    .map((source, idx) => `[Source ${idx + 1}] "${source.title}" - ${source.quote}`)
+    .join('\n');
+
+  debugLogger.info('AGENT_ANALYSIS', 'Prepared sources for citation', {
+    totalSources: topSources.length,
+    sourcesForCitation: topSources.slice(0, 10).length,
+  });
+
   // Check reduce cache before LLM call (saves ~10s for similar queries)
   const reduceCacheKey = getReduceCacheKey(bullishPercent, bearishPercent, insightsSummary, question);
   let summary = getCachedReduce(reduceCacheKey);
 
   if (!summary) {
-    const prompt = REDUCE_PROMPT
-      .replace('{count}', String(insights.length))
-      .replace('{days}', String(daysBack))
-      .replace('{bullishPercent}', String(bullishPercent))
-      .replace('{bearishPercent}', String(bearishPercent))
-      .replace('{neutralPercent}', String(neutralPercent))
-      .replace('{insights}', insightsSummary)
-      .replace('{question}', question);
+    // Use chain pattern to ensure CallbackHandler receives handleChainStart
+    // which properly sets sessionId on the trace
+    const reducePrompt = ChatPromptTemplate.fromTemplate(REDUCE_PROMPT);
+    const reduceChain = reducePrompt.pipe(llm);
+    const promptVars = {
+      count: String(insights.length),
+      days: String(daysBack),
+      bullishPercent: String(bullishPercent),
+      bearishPercent: String(bearishPercent),
+      neutralPercent: String(neutralPercent),
+      sourcesForCitation,
+      insights: insightsSummary,
+      question,
+    };
 
     // Use streaming when callback is provided
     if (onToken) {
-      const stream = await llm.stream(prompt, {
+      const stream = await reduceChain.stream(promptVars, {
         callbacks,
         runName: 'Analysis: Generate Summary (Streaming)',
       });
@@ -546,7 +590,7 @@ async function reduceInsights(
       }
       summary = chunks.join('');
     } else {
-      const response = await llm.invoke(prompt, {
+      const response = await reduceChain.invoke(promptVars, {
         callbacks,
         runName: 'Analysis: Generate Summary',
       });
@@ -576,8 +620,14 @@ async function reduceInsights(
   const cachedCount = insights.filter(i => i.fromCache).length;
   const confidence = calculateConfidence(insights, daysBack);
 
-  // Select top sources with smart ranking
-  const topSources = selectTopSources(insights, question, 20);
+  // topSources was already selected above for citation purposes
+
+  // Count citations in the generated summary
+  const citationCount = countCitations(summary);
+  debugLogger.info('AGENT_ANALYSIS', 'Citation count in summary', {
+    citationCount,
+    sourcesAvailable: topSources.length,
+  });
 
   return {
     summary,
@@ -594,6 +644,7 @@ async function reduceInsights(
     disclaimer: DISCLAIMER,
     confidence,
     topSources,
+    citationCount,
   };
 }
 
@@ -685,12 +736,15 @@ export async function analyzeArticleForIngestion(
 
 /**
  * Create analysis agent for analytical queries
+ * @param llm - The ChatOpenAI instance
+ * @param langfuseHandler - LangFuse callback handler for tracing
  */
 export async function createAnalysisAgent(
   llm: ChatOpenAI,
   langfuseHandler?: CallbackHandler
 ): Promise<(question: string, daysBack: number, onProgress?: ProgressCallback, onToken?: TokenStreamCallback) => Promise<AnalysisOutput>> {
-  const callbacks = langfuseHandler ? [langfuseHandler] : [];
+  // Create callbacks array from handler
+  const callbacks: CallbackHandler[] = langfuseHandler ? [langfuseHandler] : [];
 
   return async (question: string, daysBack: number, onProgress?: ProgressCallback, onToken?: TokenStreamCallback): Promise<AnalysisOutput> => {
     const stepId = debugLogger.stepStart('AGENT_ANALYSIS', 'Analysis agent executing', {
@@ -713,8 +767,16 @@ export async function createAnalysisAgent(
           }
         }
         debugLogger.stepFinish(stepId, {
+          cacheStatus: 'FULL_QUERY_CACHE_HIT',
           queryCacheHit: true,
           articlesAnalyzed: cachedOutput.articlesAnalyzed,
+          cachedInsights: cachedOutput.cachedInsights,
+          llmCallsSkipped: 'ALL (reduce + map phases)',
+          estimatedCostSaved: 'Full analysis cost (~$0.01-0.05)',
+        });
+        debugLogger.info('AGENT_ANALYSIS', '✅ CACHE EFFICIENCY: Full query cache hit - zero LLM calls needed', {
+          question: question.substring(0, 50),
+          articlesCount: cachedOutput.articlesAnalyzed,
         });
         return cachedOutput;
       }
@@ -737,6 +799,7 @@ export async function createAnalysisAgent(
           disclaimer: DISCLAIMER,
           confidence: 0,
           topSources: [],
+          citationCount: 0,
         };
       }
 
@@ -752,13 +815,32 @@ export async function createAnalysisAgent(
       // Cache the output for future identical queries
       setCachedAnalysis(question, daysBack, output, articles.length);
 
+      // Calculate cache efficiency metrics
+      const cacheHitRate = output.articlesAnalyzed > 0
+        ? Math.round((output.cachedInsights / output.articlesAnalyzed) * 100)
+        : 0;
+      const llmCallsMade = output.newInsights + 1; // +1 for reduce phase
+      const llmCallsSkipped = output.cachedInsights;
+
       debugLogger.stepFinish(stepId, {
+        cacheStatus: output.cachedInsights === output.articlesAnalyzed ? 'ALL_INSIGHTS_CACHED' : 'PARTIAL_CACHE',
         articlesAnalyzed: output.articlesAnalyzed,
         cachedInsights: output.cachedInsights,
         newInsights: output.newInsights,
+        cacheHitRate: `${cacheHitRate}%`,
+        llmCallsMade,
+        llmCallsSkipped,
         sentiment: output.sentiment.overall,
         confidence: output.confidence,
+        citationCount: output.citationCount,
         queryCached: true,
+      });
+
+      debugLogger.info('AGENT_ANALYSIS', `✅ CACHE EFFICIENCY: ${cacheHitRate}% of article insights from cache`, {
+        totalArticles: output.articlesAnalyzed,
+        fromCache: output.cachedInsights,
+        newLLMCalls: output.newInsights,
+        reduceLLMCall: output.cachedInsights === output.articlesAnalyzed ? 'Made (not cached)' : 'Made',
       });
 
       return output;

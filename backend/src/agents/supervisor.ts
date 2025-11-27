@@ -102,6 +102,51 @@ export function createSupervisor(
   }
 
   /**
+   * Node: Analysis Validation
+   * Validates the analysis output by converting it to RetrievalOutput format
+   * and reusing the existing validation agent
+   */
+  async function analysisValidationNode(state: AgentStateType): Promise<Partial<AgentStateType>> {
+    debugLogger.info('SUPERVISOR', 'Executing analysis validation node');
+
+    if (!state.analysisOutput) {
+      throw new Error('No analysis output available for validation');
+    }
+
+    // Convert AnalysisOutput to RetrievalOutput format for validation
+    // The validation agent expects sources and a summary with [Source N] citations
+    const retrievalOutput: RetrievalOutput = {
+      summary: state.analysisOutput.summary,
+      sources: state.analysisOutput.topSources.map((source, index) => ({
+        title: source.title,
+        url: source.url,
+        publishedAt: source.publishedAt,
+        snippet: source.quote,
+      })),
+      citationCount: state.analysisOutput.citationCount,
+    };
+
+    debugLogger.info('SUPERVISOR', 'Converted analysis to retrieval format for validation', {
+      sourcesCount: retrievalOutput.sources.length,
+      citationCount: retrievalOutput.citationCount,
+    });
+
+    // Reuse the existing validation agent
+    const validationOutput = await validationAgent(retrievalOutput);
+
+    debugLogger.info('SUPERVISOR', 'Analysis validation complete', {
+      confidence: validationOutput.confidence,
+      isValid: validationOutput.isValid,
+      citationsVerified: validationOutput.citationsVerified,
+      citationsTotal: validationOutput.citationsTotal,
+    });
+
+    return {
+      validationOutput,
+    };
+  }
+
+  /**
    * Node: Validation
    * Validates the retrieval output for citation accuracy
    */
@@ -148,7 +193,11 @@ export function createSupervisor(
    * Prepares the final response for analysis path
    */
   async function finalizeAnalysisNode(state: AgentStateType): Promise<Partial<AgentStateType>> {
-    debugLogger.info('SUPERVISOR', 'Executing finalize analysis node');
+    debugLogger.info('SUPERVISOR', 'Executing finalize analysis node', {
+      hasValidationOutput: !!state.validationOutput,
+      validationConfidence: state.validationOutput?.confidence,
+      validationIsValid: state.validationOutput?.isValid,
+    });
 
     if (!state.analysisOutput) {
       throw new Error('Missing analysis output');
@@ -159,7 +208,12 @@ export function createSupervisor(
     const trendList = trends.length > 0 ? `\n\nKey trends: ${trends.join(', ')}` : '';
     const sentimentInfo = `\n\nMarket sentiment: ${sentiment.overall} (${sentiment.bullishPercent}% bullish, ${sentiment.bearishPercent}% bearish)`;
 
-    const finalAnswer = `${summary}${sentimentInfo}${trendList}\n\n${disclaimer}`;
+    // Add validation status if available
+    const validationInfo = state.validationOutput
+      ? `\n\n📊 Citation Quality: ${state.validationOutput.citationsVerified}/${state.validationOutput.citationsTotal} citations verified (${state.validationOutput.confidence}% confidence)`
+      : '';
+
+    const finalAnswer = `${summary}${sentimentInfo}${trendList}${validationInfo}\n\n${disclaimer}`;
 
     return {
       finalAnswer,
@@ -220,6 +274,7 @@ export function createSupervisor(
     .addNode('validation', validationNode)
     .addNode('finalize', finalizeNode)
     .addNode('analysis', analysisNode)
+    .addNode('analysisValidation', analysisValidationNode)
     .addNode('finalizeAnalysis', finalizeAnalysisNode)
 
     // Define edges
@@ -228,18 +283,21 @@ export function createSupervisor(
       retrieval: 'retrieval',
       analysis: 'analysis',
     })
+    // Retrieval path: retrieval → validation → finalize
     .addEdge('retrieval', 'validation')
     .addConditionalEdges('validation', shouldRetry, {
       retrieval: 'retrieval',
       finalize: 'finalize',
     })
     .addEdge('finalize', END)
-    .addEdge('analysis', 'finalizeAnalysis')
+    // Analysis path: analysis → analysisValidation → finalizeAnalysis
+    .addEdge('analysis', 'analysisValidation')
+    .addEdge('analysisValidation', 'finalizeAnalysis')
     .addEdge('finalizeAnalysis', END);
 
   const compiledGraph = workflow.compile();
 
-  debugLogger.stepFinish(stepId, { nodes: 6, edges: 7 });
+  debugLogger.stepFinish(stepId, { nodes: 7, edges: 8 });
 
   /**
    * Invoke the supervisor with a question
@@ -278,11 +336,15 @@ export function createSupervisor(
         // Convert analysis topSources to FinalResponse source format
         const sources = result.analysisOutput.topSources || [];
 
+        // Use validation confidence if available, otherwise use analysis confidence
+        const confidence = result.validationOutput?.confidence ?? result.analysisOutput.confidence;
+        const validated = result.validationOutput?.isValid ?? true;
+
         const finalResponse: FinalResponse = {
           answer: result.finalAnswer,
           sources: sources,
-          confidence: result.analysisOutput.confidence,
-          validated: true,
+          confidence,
+          validated,
           metadata: {
             retriesUsed: 0,
             timestamp: new Date().toISOString(),
@@ -295,7 +357,11 @@ export function createSupervisor(
           cachedInsights: result.analysisOutput.cachedInsights,
           newInsights: result.analysisOutput.newInsights,
           sentiment: result.analysisOutput.sentiment.overall,
-          confidence: result.analysisOutput.confidence,
+          analysisConfidence: result.analysisOutput.confidence,
+          validationConfidence: result.validationOutput?.confidence,
+          citationsVerified: result.validationOutput?.citationsVerified,
+          citationsTotal: result.validationOutput?.citationsTotal,
+          validated,
           sourcesCount: sources.length,
         });
 
