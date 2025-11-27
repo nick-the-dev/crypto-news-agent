@@ -1,4 +1,5 @@
 import { ChatOpenAI } from '@langchain/openai';
+import { sanitizeForLLM } from '../utils/sanitize';
 
 export interface ExpandedQuery {
   original: string;
@@ -47,8 +48,16 @@ export async function rewriteQuery(query: string, llm: ChatOpenAI): Promise<Expa
   const basicExpanded = expandSlang(query);
   const timeframe = extractTimeframe(query);
 
+  // Sanitize query to prevent prompt injection attacks
+  const { sanitized: sanitizedQuery, suspicious } = sanitizeForLLM(query);
+
+  if (suspicious) {
+    // Log suspicious input but continue with sanitized version
+    console.warn('[SECURITY] Suspicious input detected in query rewriter:', query.substring(0, 100));
+  }
+
   try {
-    const response = await llm.invoke(REWRITE_PROMPT.replace('{query}', query));
+    const response = await llm.invoke(REWRITE_PROMPT.replace('{query}', sanitizedQuery));
     const content = typeof response.content === 'string' ? response.content : String(response.content);
     const parsed = JSON.parse(content.replace(/```json?\n?|\n?```/g, '').trim());
 

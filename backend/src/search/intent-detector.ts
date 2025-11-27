@@ -1,4 +1,5 @@
 import { ChatOpenAI } from '@langchain/openai';
+import { sanitizeForLLM } from '../utils/sanitize';
 
 export type QueryIntent = 'retrieval' | 'analysis';
 
@@ -71,8 +72,16 @@ export function detectIntentFast(query: string): IntentResult {
  * LLM-based intent detection for ambiguous cases
  */
 export async function detectIntentLLM(query: string, llm: ChatOpenAI): Promise<IntentResult> {
+  // Sanitize query to prevent prompt injection attacks
+  const { sanitized: sanitizedQuery, suspicious } = sanitizeForLLM(query);
+
+  if (suspicious) {
+    // Log suspicious input but continue with sanitized version
+    console.warn('[SECURITY] Suspicious input detected in intent detector:', query.substring(0, 100));
+  }
+
   const prompt = `Classify this query:
-"${query}"
+"${sanitizedQuery}"
 
 Is this:
 - "retrieval": User wants specific news articles or facts

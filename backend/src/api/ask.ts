@@ -12,6 +12,7 @@ import { prisma } from '../utils/db';
 import { debugLogger } from '../utils/debug-logger';
 import { detectIntentFast } from '../search/intent-detector';
 import { FinalResponse } from '../schemas';
+import { validateUserQuestion, sanitizeForLog } from '../utils/sanitize';
 
 /**
  * Convert AnalysisOutput to FinalResponse format
@@ -86,24 +87,30 @@ export async function handleAsk(req: Request, res: Response): Promise<void> {
     hasQuestion: !!req.body.question
   });
 
-  const { question } = req.body;
+  const { question: rawQuestion } = req.body;
 
-  // Validation
-  if (!question || typeof question !== 'string') {
-    debugLogger.stepError(requestStepId, 'ASK_REQUEST', 'Invalid request: question missing or invalid type', null);
-    res.status(400).json({ error: 'Question is required' });
+  // Input validation and sanitization
+  const validation = validateUserQuestion(rawQuestion);
+
+  if (!validation.valid) {
+    debugLogger.stepError(requestStepId, 'ASK_REQUEST', `Invalid request: ${validation.error}`, null);
+    res.status(400).json({ error: validation.error });
     return;
   }
 
-  if (question.length > 500) {
-    debugLogger.stepError(requestStepId, 'ASK_REQUEST', 'Invalid request: question too long', null);
-    res.status(400).json({ error: 'Question too long (max 500 chars)' });
-    return;
+  // Use sanitized question for all subsequent processing
+  const question = validation.sanitized;
+
+  // Log if suspicious patterns were detected (sanitized but flagged)
+  if (validation.error) {
+    debugLogger.warn('ASK_REQUEST', 'Suspicious input patterns detected and sanitized', {
+      originalPreview: sanitizeForLog(rawQuestion.substring(0, 100)),
+    });
   }
 
   debugLogger.info('ASK_REQUEST', 'Valid question received', {
     questionLength: question.length,
-    questionPreview: question.substring(0, 50) + '...'
+    questionPreview: sanitizeForLog(question.substring(0, 50)) + '...'
   });
 
   // Fast intent detection to check for cache opportunity

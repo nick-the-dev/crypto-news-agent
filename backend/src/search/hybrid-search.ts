@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../utils/db';
 import { OpenRouterEmbeddings } from '../agents/llm';
 import { ExpandedQuery } from './query-rewriter';
+import { sanitizeLexicalTerms } from '../utils/sanitize';
 
 export interface HybridSearchResult {
   chunkId: string;
@@ -108,12 +109,9 @@ async function lexicalSearch(
   dateFilter: Date,
   limit: number
 ): Promise<RawLexicalResult[]> {
-  const terms = query
-    .split(/\s+/)
-    .filter(t => t.length > 2)
-    .map(t => t.replace(/[^\w]/g, ''))
-    .filter(Boolean)
-    .join(' | ');
+  // Use centralized sanitization for lexical search terms
+  // This prevents SQL injection and limits term count
+  const terms = sanitizeLexicalTerms(query);
 
   if (!terms) return [];
 
