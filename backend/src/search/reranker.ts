@@ -74,12 +74,14 @@ function calcChunkTypeScore(isIntro: boolean, isSummary: boolean): number {
 }
 
 export function deduplicateByArticle(results: RerankedResult[]): RerankedResult[] {
+  // Deduplicate by title (handles same article with different URL tracking params)
   const seen = new Map<string, RerankedResult>();
 
   for (const result of results) {
-    const existing = seen.get(result.articleId);
+    const normalizedTitle = result.title.toLowerCase().trim();
+    const existing = seen.get(normalizedTitle);
     if (!existing || result.finalScore > existing.finalScore) {
-      seen.set(result.articleId, result);
+      seen.set(normalizedTitle, result);
     }
   }
 

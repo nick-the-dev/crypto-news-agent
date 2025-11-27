@@ -469,8 +469,20 @@ function selectTopSources(insights: ArticleInsight[], query: string, limit: numb
     })
     .sort((a, b) => b.score - a.score);
 
+  // Deduplicate by title (same article can have multiple URLs with tracking params)
+  // Keep the highest-scoring entry for each unique title
+  const seenTitles = new Set<string>();
+  const deduplicated = scored.filter(item => {
+    const normalizedTitle = item.insight.title.toLowerCase().trim();
+    if (seenTitles.has(normalizedTitle)) {
+      return false;
+    }
+    seenTitles.add(normalizedTitle);
+    return true;
+  });
+
   // Return top articles by score
-  return scored.slice(0, limit).map(({ insight, score }) => ({
+  return deduplicated.slice(0, limit).map(({ insight, score }) => ({
     title: insight.title,
     url: insight.url,
     publishedAt: insight.publishedAt.toISOString(),

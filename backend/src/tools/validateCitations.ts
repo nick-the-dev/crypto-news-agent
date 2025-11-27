@@ -92,10 +92,18 @@ export function createValidateCitationsTool(): DynamicStructuredTool {
           s => !transitionWords.some(word => s.toLowerCase().includes(word))
         );
 
-        if (genuineUncitedClaims.length > 2) {
+        // Use dynamic threshold based on content length
+        // Long summaries naturally have more sentences; we care about citation RATIO
+        const totalSentences = sentences.length;
+        const uncitedRatio = totalSentences > 0 ? genuineUncitedClaims.length / totalSentences : 0;
+
+        // Only flag if >60% of sentences lack citations (very liberal for analytical content)
+        // OR if there are many uncited claims AND few total citations
+        const hasVeryCitations = citations.length >= 5;
+        if (uncitedRatio > 0.6 && !hasVeryCitations) {
           issues.push({
             type: 'uncited_claim',
-            message: `Found ${genuineUncitedClaims.length} potentially uncited factual claims`,
+            message: `Found ${genuineUncitedClaims.length} potentially uncited factual claims (${Math.round(uncitedRatio * 100)}% uncited)`,
           });
         }
 

@@ -4,6 +4,14 @@ import { RetrievalOutput, ValidationOutput, FinalResponse } from '../schemas';
 import { AnalysisOutput, ProgressCallback, TokenStreamCallback } from './analysis';
 import { detectIntent, QueryIntent } from '../search/intent-detector';
 import { debugLogger } from '../utils/debug-logger';
+import {
+  ClaimMatch,
+  NewSource,
+  extractUncitedClaims,
+  findEvidenceForClaims,
+  injectCitations,
+} from '../search/claim-evidence-finder';
+import { createOpenRouterEmbeddings } from './llm';
 
 /**
  * Define the state for the multi-agent workflow
@@ -17,6 +25,9 @@ const AgentState = Annotation.Root({
   analysisOutput: Annotation<AnalysisOutput | null>,
   finalAnswer: Annotation<string | null>,
   retryCount: Annotation<number>,
+  // Smart citation recovery state
+  analysisRetryCount: Annotation<number>,
+  claimMatches: Annotation<ClaimMatch[] | null>,
 });
 
 type AgentStateType = typeof AgentState.State;
@@ -117,11 +128,12 @@ export function createSupervisor(
     // The validation agent expects sources and a summary with [Source N] citations
     const retrievalOutput: RetrievalOutput = {
       summary: state.analysisOutput.summary,
-      sources: state.analysisOutput.topSources.map((source, index) => ({
+      sources: state.analysisOutput.topSources.map((source) => ({
         title: source.title,
         url: source.url,
         publishedAt: source.publishedAt,
-        snippet: source.quote,
+        quote: source.quote,
+        relevance: source.relevance ?? 0,
       })),
       citationCount: state.analysisOutput.citationCount,
     };
@@ -143,6 +155,74 @@ export function createSupervisor(
 
     return {
       validationOutput,
+    };
+  }
+
+  /**
+   * Node: Find Claim Evidence
+   * Searches vector DB in parallel for evidence to support uncited claims
+   * Only runs when analysis validation fails (isValid: false)
+   */
+  async function findClaimEvidenceNode(state: AgentStateType): Promise<Partial<AgentStateType>> {
+    debugLogger.info('SUPERVISOR', 'Finding evidence for uncited claims');
+
+    if (!state.analysisOutput) {
+      throw new Error('No analysis output available for evidence search');
+    }
+
+    // Extract uncited sentences
+    const uncitedClaims = extractUncitedClaims(state.analysisOutput.summary);
+
+    if (uncitedClaims.length === 0) {
+      debugLogger.info('SUPERVISOR', 'No uncited claims found');
+      return {
+        claimMatches: [],
+        analysisRetryCount: 1,
+      };
+    }
+
+    debugLogger.info('SUPERVISOR', 'Searching for evidence', {
+      uncitedClaimsCount: uncitedClaims.length,
+      existingSourcesCount: state.analysisOutput.topSources.length,
+    });
+
+    // Create embeddings instance for search
+    const embeddings = createOpenRouterEmbeddings();
+
+    // Parallel vector search for all claims
+    const claimMatches = await findEvidenceForClaims(
+      uncitedClaims,
+      embeddings,
+      state.analysisOutput.topSources,
+      { daysBack: state.timeframeDays, minSimilarity: 0.45 }
+    );
+
+    // Inject citations into the summary (now also returns new sources)
+    const { updatedSummary, citationsAdded, newSources } = injectCitations(
+      state.analysisOutput.summary,
+      claimMatches,
+      state.analysisOutput.topSources.length
+    );
+
+    // Merge new sources into topSources
+    const updatedTopSources = [...state.analysisOutput.topSources, ...newSources];
+
+    debugLogger.info('SUPERVISOR', 'Evidence search complete', {
+      claimsSearched: uncitedClaims.length,
+      existingSourceMatches: claimMatches.filter(m => m.sourceIndex > 0).length,
+      newSourcesAdded: newSources.length,
+      citationsAdded,
+      totalSources: updatedTopSources.length,
+    });
+
+    return {
+      analysisOutput: {
+        ...state.analysisOutput,
+        summary: updatedSummary,
+        topSources: updatedTopSources,
+      },
+      claimMatches,
+      analysisRetryCount: 1,
     };
   }
 
@@ -197,6 +277,8 @@ export function createSupervisor(
       hasValidationOutput: !!state.validationOutput,
       validationConfidence: state.validationOutput?.confidence,
       validationIsValid: state.validationOutput?.isValid,
+      hasClaimMatches: !!state.claimMatches,
+      claimMatchesCount: state.claimMatches?.length ?? 0,
     });
 
     if (!state.analysisOutput) {
@@ -208,9 +290,17 @@ export function createSupervisor(
     const trendList = trends.length > 0 ? `\n\nKey trends: ${trends.join(', ')}` : '';
     const sentimentInfo = `\n\nMarket sentiment: ${sentiment.overall} (${sentiment.bullishPercent}% bullish, ${sentiment.bearishPercent}% bearish)`;
 
+    // Add evidence search info if we ran smart citation recovery
+    const claimMatches = state.claimMatches ?? [];
+    const evidenceSearched = claimMatches.length > 0;
+    const evidenceFound = claimMatches.filter(m => m.sourceIndex > 0).length;
+    const evidenceInfo = evidenceSearched
+      ? ` (${evidenceFound} claims verified via search)`
+      : '';
+
     // Add validation status if available
     const validationInfo = state.validationOutput
-      ? `\n\n📊 Citation Quality: ${state.validationOutput.citationsVerified}/${state.validationOutput.citationsTotal} citations verified (${state.validationOutput.confidence}% confidence)`
+      ? `\n\n📊 Citation Quality${evidenceInfo}: ${state.validationOutput.citationsVerified}/${state.validationOutput.citationsTotal} citations verified (${state.validationOutput.confidence}% confidence)`
       : '';
 
     const finalAnswer = `${summary}${sentimentInfo}${trendList}${validationInfo}\n\n${disclaimer}`;
@@ -265,6 +355,32 @@ export function createSupervisor(
   }
 
   /**
+   * Conditional edge: Route analysis validation to evidence search or finalize
+   */
+  function shouldRefineAnalysis(state: AgentStateType): string {
+    if (!state.validationOutput) {
+      return 'finalizeAnalysis';
+    }
+
+    const { isValid } = state.validationOutput;
+    const hasRetried = (state.analysisRetryCount ?? 0) > 0;
+
+    debugLogger.info('SUPERVISOR', 'Checking analysis refinement condition', {
+      isValid,
+      hasRetried,
+      analysisRetryCount: state.analysisRetryCount ?? 0,
+    });
+
+    // Only try evidence search once, and only if validation failed
+    if (!isValid && !hasRetried) {
+      debugLogger.info('SUPERVISOR', 'Validation failed, triggering evidence search');
+      return 'findEvidence';
+    }
+
+    return 'finalizeAnalysis';
+  }
+
+  /**
    * Build the state graph
    */
   const workflow = new StateGraph(AgentState)
@@ -275,6 +391,7 @@ export function createSupervisor(
     .addNode('finalize', finalizeNode)
     .addNode('analysis', analysisNode)
     .addNode('analysisValidation', analysisValidationNode)
+    .addNode('findClaimEvidence', findClaimEvidenceNode)  // Smart citation recovery
     .addNode('finalizeAnalysis', finalizeAnalysisNode)
 
     // Define edges
@@ -290,14 +407,21 @@ export function createSupervisor(
       finalize: 'finalize',
     })
     .addEdge('finalize', END)
-    // Analysis path: analysis → analysisValidation → finalizeAnalysis
+    // Analysis path with smart citation recovery:
+    // analysis → analysisValidation → [isValid?]
+    //   ├─ YES → finalizeAnalysis → END
+    //   └─ NO → findClaimEvidence → analysisValidation → finalizeAnalysis → END
     .addEdge('analysis', 'analysisValidation')
-    .addEdge('analysisValidation', 'finalizeAnalysis')
+    .addConditionalEdges('analysisValidation', shouldRefineAnalysis, {
+      findEvidence: 'findClaimEvidence',
+      finalizeAnalysis: 'finalizeAnalysis',
+    })
+    .addEdge('findClaimEvidence', 'analysisValidation')  // Re-validate after evidence search
     .addEdge('finalizeAnalysis', END);
 
   const compiledGraph = workflow.compile();
 
-  debugLogger.stepFinish(stepId, { nodes: 7, edges: 8 });
+  debugLogger.stepFinish(stepId, { nodes: 8, edges: 10 });
 
   /**
    * Invoke the supervisor with a question
@@ -322,6 +446,9 @@ export function createSupervisor(
         analysisOutput: null,
         finalAnswer: null,
         retryCount: 0,
+        // Smart citation recovery
+        analysisRetryCount: 0,
+        claimMatches: null,
       };
 
       // Execute the workflow

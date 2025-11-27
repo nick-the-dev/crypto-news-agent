@@ -1,5 +1,7 @@
 import { ChatOpenAI } from '@langchain/openai';
 import { DynamicStructuredTool } from '@langchain/core/tools';
+import { ChatPromptTemplate } from '@langchain/core/prompts';
+import { RunnableSequence } from '@langchain/core/runnables';
 import { CallbackHandler } from '@langfuse/langchain';
 import { ValidationOutputSchema, ValidationOutput, RetrievalOutput } from '../schemas';
 import { debugLogger } from '../utils/debug-logger';
@@ -31,21 +33,57 @@ export async function createValidationAgent(
       debugLogger.info('AGENT_VALIDATION', 'Validation tool result', toolResult);
 
       // Step 2: Use LLM to generate final validation assessment
+      // CRITICAL: Use RunnableSequence for proper LangFuse sessionId tracking
+      // Direct llm.invoke() does NOT trigger handleChainStart, causing orphaned traces with NULL sessionId
+      // NOTE: Do NOT truncate the answer - LangFuse should capture full input/output for observability
       const validationLLM = llm.withStructuredOutput(ValidationOutputSchema);
 
-      const assessmentPrompt = `Score this answer (0-100). Valid=${toolResult.isValid}, Citations: ${toolResult.citationsVerified}/${toolResult.citationsFound}.
-Issues: ${toolResult.issues.join(', ') || 'None'}
-Answer: "${retrievalOutput.summary.substring(0, 200)}..."`;
+      const assessmentPromptTemplate = ChatPromptTemplate.fromTemplate(
+        `Score the citation quality of this answer (0-100).
 
-      const assessment = await validationLLM.invoke(assessmentPrompt, {
-        callbacks,
-        runName: 'Validation: Assess Citations',
-      });
+Validation Results:
+- Citations verified: {citationsVerified}/{citationsFound}
+- Tool validation passed: {isValid}
+- Issues found: {issues}
 
+Scoring Guide:
+- 90-100: All citations verified, no invalid references
+- 70-89: Most citations verified, minor issues
+- 50-69: Some citations missing or invalid
+- Below 50: Major citation problems
+
+If citationsVerified equals citationsFound and no issues were found, score should be 90+.
+Transition sentences, conclusions, and opinion summaries don't need citations.
+
+Answer to evaluate:
+"{fullAnswer}"`
+      );
+
+      const validationChain = RunnableSequence.from([
+        assessmentPromptTemplate,
+        validationLLM,
+      ]);
+
+      const assessment = await validationChain.invoke(
+        {
+          isValid: toolResult.isValid,
+          citationsVerified: toolResult.citationsVerified,
+          citationsFound: toolResult.citationsFound,
+          issues: toolResult.issues.join(', ') || 'None',
+          fullAnswer: retrievalOutput.summary,  // Full answer for proper LangFuse tracing
+        },
+        {
+          callbacks,
+          runName: 'Validation: Assess Citations',
+        }
+      );
+
+      // Use tool's issues (more reliable) but LLM's confidence score
+      // The tool does actual citation counting; LLM provides holistic scoring
       const output: ValidationOutput = {
         confidence: assessment.confidence,
         isValid: assessment.confidence >= 70,
-        issues: assessment.issues,
+        issues: toolResult.issues,  // Trust the tool's issues, not LLM's
         citationsVerified: toolResult.citationsVerified,
         citationsTotal: toolResult.citationsFound,
       };

@@ -1,6 +1,7 @@
 import { ChatPromptTemplate } from '@langchain/core/prompts';
 import { ChatOpenAI } from '@langchain/openai';
 import { DynamicStructuredTool } from '@langchain/core/tools';
+import { RunnableSequence } from '@langchain/core/runnables';
 import { CallbackHandler } from '@langfuse/langchain';
 import { RetrievalOutputSchema, RetrievalOutput } from '../schemas';
 import { debugLogger } from '../utils/debug-logger';
@@ -87,6 +88,8 @@ export async function createRetrievalAgent(
       }
 
       // Step 3: Generate summary with structured output
+      // CRITICAL: Use RunnableSequence for proper LangFuse sessionId tracking
+      // Direct llm.invoke() does NOT trigger handleChainStart, causing orphaned traces with NULL sessionId
       const summaryLLM = llm.withStructuredOutput(RetrievalOutputSchema);
 
       // Include confidence caveat in prompt if present
@@ -94,14 +97,30 @@ export async function createRetrievalAgent(
         ? `\n\nIMPORTANT: ${searchResults.confidence.caveat} Start your response acknowledging this.`
         : '';
 
-      const summaryPrompt = `Answer "${question}" in 2-3 sentences using only these sources. Cite every fact with [Source N].${confidenceCaveat}
+      const sourcesText = searchResults.articles.map((a: any) => `[Source ${a.sourceNumber}] ${a.title} (${a.publishedAt}): ${a.quote}`).join('\n\n');
 
-${searchResults.articles.map((a: any) => `[Source ${a.sourceNumber}] ${a.title} (${a.publishedAt}): ${a.quote}`).join('\n\n')}`;
+      const summaryPromptTemplate = ChatPromptTemplate.fromTemplate(
+        `Answer "{question}" in 2-3 sentences using only these sources. Cite every fact with [Source N].{confidenceCaveat}
 
-      const summaryResponse = await summaryLLM.invoke(summaryPrompt, {
-        callbacks,
-        runName: 'Retrieval: Generate Summary',
-      });
+{sourcesText}`
+      );
+
+      const summaryChain = RunnableSequence.from([
+        summaryPromptTemplate,
+        summaryLLM,
+      ]);
+
+      const summaryResponse = await summaryChain.invoke(
+        {
+          question,
+          confidenceCaveat,
+          sourcesText,
+        },
+        {
+          callbacks,
+          runName: 'Retrieval: Generate Summary',
+        }
+      );
 
       // Map search results to Source schema format
       const sources = searchResults.articles.map((a: any) => ({

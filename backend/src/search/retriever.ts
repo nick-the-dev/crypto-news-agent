@@ -149,14 +149,16 @@ function calculateScore(result: RawSearchResult & { score?: number }): number {
 function deduplicateByArticle(
   results: (RawSearchResult & { score: number })[]
 ): (RawSearchResult & { score: number })[] {
-  const articleMap = new Map<string, RawSearchResult & { score: number }>();
+  // Deduplicate by title (handles same article with different URL tracking params)
+  const titleMap = new Map<string, RawSearchResult & { score: number }>();
 
   for (const result of results) {
-    const existing = articleMap.get(result.articleId);
+    const normalizedTitle = result.title.toLowerCase().trim();
+    const existing = titleMap.get(normalizedTitle);
     if (!existing || result.score > existing.score) {
-      articleMap.set(result.articleId, result);
+      titleMap.set(normalizedTitle, result);
     }
   }
 
-  return Array.from(articleMap.values());
+  return Array.from(titleMap.values());
 }
