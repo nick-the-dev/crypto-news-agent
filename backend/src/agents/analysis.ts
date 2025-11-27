@@ -6,6 +6,11 @@ import { prisma } from '../utils/db';
 import { debugLogger } from '../utils/debug-logger';
 import { SingleArticleAnalysisSchema, SingleArticleAnalysis } from '../schemas';
 import crypto from 'crypto';
+import {
+  expandQueryWithLLM,
+  cosineSimilarity,
+} from '../utils/query-expansion';
+import { createOpenRouterEmbeddings, OpenRouterEmbeddings } from './llm';
 
 /**
  * Query-level analysis cache
@@ -132,6 +137,94 @@ export function clearAnalysisCache(): void {
   queryCache.clear();
   reduceCache.clear();
   debugLogger.info('AGENT_ANALYSIS', 'Caches cleared', { queryEntriesCleared: querySize, reduceEntriesCleared: reduceSize });
+}
+
+/**
+ * Semantic pre-filtering: Find relevant article IDs using LLM query expansion + vector search
+ * Uses dynamic LLM-based understanding instead of hardcoded dictionaries
+ */
+async function findRelevantArticleIds(
+  question: string,
+  daysBack: number,
+  embeddings: OpenRouterEmbeddings,
+  llm: ChatOpenAI
+): Promise<{ articleIds: Set<string>; isTopicSpecific: boolean; searchTerms: string[] }> {
+  const stepId = debugLogger.stepStart('SEMANTIC_PREFILTER', 'Running semantic pre-filter', {
+    question: question.substring(0, 50),
+  });
+
+  try {
+    // Use LLM to understand the query and generate search terms dynamically
+    const expansion = await expandQueryWithLLM(question, llm);
+
+    if (!expansion.isTopicSpecific) {
+      debugLogger.stepFinish(stepId, { isTopicSpecific: false, reason: 'LLM determined query is not topic-specific' });
+      return { articleIds: new Set(), isTopicSpecific: false, searchTerms: [] };
+    }
+
+    debugLogger.info('SEMANTIC_PREFILTER', 'LLM expanded query', {
+      category: expansion.category,
+      searchTerms: expansion.searchTerms,
+    });
+
+    const dateFilter = new Date();
+    dateFilter.setDate(dateFilter.getDate() - daysBack);
+
+    // Create a combined search query from LLM-generated terms
+    const searchQuery = expansion.searchTerms.join(' ');
+
+    // Get embedding for the search query
+    const queryEmbedding = await embeddings.embedQuery(searchQuery);
+    const embeddingStr = `[${queryEmbedding.join(',')}]`;
+
+    // Vector search for relevant chunks
+    const vectorResults = await prisma.$queryRaw<Array<{ articleId: string; similarity: number }>>`
+      SELECT DISTINCT
+        a.id as "articleId",
+        MAX(1 - (e.embedding <=> ${embeddingStr}::vector)) as similarity
+      FROM "ArticleEmbedding" e
+      JOIN "ArticleChunk" c ON e."chunkId" = c.id
+      JOIN "Article" a ON c."articleId" = a.id
+      WHERE a."publishedAt" >= ${dateFilter}
+        AND (1 - (e.embedding <=> ${embeddingStr}::vector)) >= 0.35
+      GROUP BY a.id
+      ORDER BY similarity DESC
+      LIMIT 50
+    `;
+
+    // Also do lexical search on article titles for LLM-generated search terms
+    const lexicalConditions = expansion.searchTerms.slice(0, 5).map((term: string) => ({
+      title: { contains: term, mode: 'insensitive' as const },
+    }));
+
+    const lexicalResults = await prisma.article.findMany({
+      where: {
+        publishedAt: { gte: dateFilter },
+        OR: lexicalConditions.length > 0 ? lexicalConditions : undefined,
+      },
+      select: { id: true },
+      take: 30,
+    });
+
+    // Merge results
+    const articleIds = new Set<string>([
+      ...vectorResults.map(r => r.articleId),
+      ...lexicalResults.map(r => r.id),
+    ]);
+
+    debugLogger.stepFinish(stepId, {
+      vectorResults: vectorResults.length,
+      lexicalResults: lexicalResults.length,
+      uniqueArticles: articleIds.size,
+      topSimilarity: vectorResults[0]?.similarity?.toFixed(3),
+      searchTerms: expansion.searchTerms.slice(0, 5),
+    });
+
+    return { articleIds, isTopicSpecific: true, searchTerms: expansion.searchTerms };
+  } catch (error) {
+    debugLogger.stepError(stepId, 'SEMANTIC_PREFILTER', 'Semantic pre-filter failed', error);
+    return { articleIds: new Set(), isTopicSpecific: false, searchTerms: [] };
+  }
 }
 
 /**
@@ -276,15 +369,27 @@ interface ArticleWithInsights {
 
 /**
  * Fetch articles with their cached insights
+ * @param daysBack - Number of days to look back
+ * @param relevantIds - Optional set of article IDs to filter to (for topic-specific queries)
  */
-async function fetchArticlesWithInsights(daysBack: number): Promise<ArticleWithInsights[]> {
+async function fetchArticlesWithInsights(
+  daysBack: number,
+  relevantIds?: Set<string>
+): Promise<ArticleWithInsights[]> {
   const dateFilter = new Date();
   dateFilter.setDate(dateFilter.getDate() - daysBack);
 
+  // Build where clause with optional ID filter
+  const whereClause: { publishedAt: { gte: Date }; id?: { in: string[] } } = {
+    publishedAt: { gte: dateFilter },
+  };
+
+  if (relevantIds && relevantIds.size > 0) {
+    whereClause.id = { in: Array.from(relevantIds) };
+  }
+
   return prisma.article.findMany({
-    where: {
-      publishedAt: { gte: dateFilter },
-    },
+    where: whereClause,
     select: {
       id: true,
       title: true,
@@ -423,16 +528,51 @@ async function mapArticles(
 }
 
 /**
- * Select top articles with smart ranking:
- * - Key points count (more = better)
- * - Entity relevance to query
- * - Recency bonus
- * - Sentiment bonus (non-neutral = more interesting)
+ * Select top articles using semantic ranking
+ * Uses embedding similarity + LLM-generated search terms for dynamic matching
+ * No hardcoded dictionaries - fully semantic approach
  */
-function selectTopSources(insights: ArticleInsight[], query: string, limit: number): AnalysisSource[] {
-  const queryTerms = new Set(query.toLowerCase().split(/\W+/).filter(w => w.length > 2));
+async function selectTopSourcesSemantic(
+  insights: ArticleInsight[],
+  query: string,
+  searchTerms: string[],
+  queryEmbedding: number[],
+  embeddings: OpenRouterEmbeddings,
+  limit: number
+): Promise<AnalysisSource[]> {
   const now = Date.now();
   const dayMs = 24 * 60 * 60 * 1000;
+
+  debugLogger.info('AGENT_ANALYSIS', 'Selecting top sources with semantic ranking', {
+    originalQuery: query.substring(0, 50),
+    searchTermsCount: searchTerms.length,
+    searchTerms: searchTerms.slice(0, 8),
+  });
+
+  // Create a set of search terms for quick lookup (lowercase)
+  const searchTermSet = new Set(searchTerms.map(t => t.toLowerCase()));
+
+  // Compute title embeddings in batches for semantic similarity
+  const titlesToEmbed = insights.filter(i => i.keyPoints.length > 0).slice(0, 100);
+  const titleEmbeddings = new Map<string, number[]>();
+
+  // Batch embed titles for semantic matching
+  const BATCH_SIZE = 20;
+  for (let i = 0; i < titlesToEmbed.length; i += BATCH_SIZE) {
+    const batch = titlesToEmbed.slice(i, i + BATCH_SIZE);
+    const embedPromises = batch.map(async (insight) => {
+      try {
+        const embedding = await embeddings.embedQuery(insight.title);
+        return { id: insight.id, embedding };
+      } catch {
+        return { id: insight.id, embedding: null };
+      }
+    });
+    const results = await Promise.all(embedPromises);
+    for (const { id, embedding } of results) {
+      if (embedding) titleEmbeddings.set(id, embedding);
+    }
+  }
 
   // Score each article
   const scored = insights
@@ -441,33 +581,63 @@ function selectTopSources(insights: ArticleInsight[], query: string, limit: numb
       let source = 'unknown';
       try { source = new URL(insight.url).hostname.replace('www.', ''); } catch {}
 
-      // Key points score (0-0.3)
-      const keyPointsScore = Math.min(insight.keyPoints.length / 5, 1) * 0.3;
+      // === SEMANTIC TITLE SIMILARITY (0-0.5) - Highest weight ===
+      const titleEmb = titleEmbeddings.get(insight.id);
+      const semanticScore = titleEmb ? cosineSimilarity(queryEmbedding, titleEmb) * 0.5 : 0;
 
-      // Entity relevance (0-0.35)
-      const entityMatches = insight.entities.filter(e =>
-        queryTerms.has(e.toLowerCase()) ||
-        [...queryTerms].some(t => e.toLowerCase().includes(t))
-      ).length;
-      const entityScore = Math.min(entityMatches / 3, 1) * 0.35;
+      // === SEARCH TERM MATCH (0-0.25) - Check if title/entities contain LLM search terms ===
+      const titleLower = insight.title.toLowerCase();
+      const entitiesLower = insight.entities.map(e => e.toLowerCase());
+      let termMatchScore = 0;
+      let matchedTerms = 0;
 
-      // Recency (0-0.2) - decay over 7 days
+      for (const term of searchTermSet) {
+        if (titleLower.includes(term)) {
+          matchedTerms++;
+        }
+        for (const entity of entitiesLower) {
+          if (entity.includes(term) || term.includes(entity)) {
+            matchedTerms++;
+            break;
+          }
+        }
+      }
+      termMatchScore = Math.min(matchedTerms / 3, 1) * 0.25;
+
+      // === KEY POINTS SCORE (0-0.1) ===
+      const keyPointsScore = Math.min(insight.keyPoints.length / 5, 1) * 0.1;
+
+      // === RECENCY (0-0.1) - decay over 7 days ===
       const age = (now - new Date(insight.publishedAt).getTime()) / dayMs;
-      const recencyScore = Math.max(0, 1 - age / 7) * 0.2;
+      const recencyScore = Math.max(0, 1 - age / 7) * 0.1;
 
-      // Sentiment bonus (0-0.15)
-      const sentimentScore = insight.sentiment !== 'neutral' ? 0.15 : 0;
+      // === SENTIMENT BONUS (0-0.05) ===
+      const sentimentScore = insight.sentiment !== 'neutral' ? 0.05 : 0;
+
+      const totalScore = semanticScore + termMatchScore + keyPointsScore + recencyScore + sentimentScore;
 
       return {
         insight,
         source,
-        score: keyPointsScore + entityScore + recencyScore + sentimentScore,
+        score: totalScore,
+        semanticScore,
+        termMatchScore,
       };
     })
     .sort((a, b) => b.score - a.score);
 
-  // Deduplicate by title (same article can have multiple URLs with tracking params)
-  // Keep the highest-scoring entry for each unique title
+  // Log top scoring articles for debugging
+  const topScored = scored.slice(0, 5);
+  debugLogger.info('AGENT_ANALYSIS', 'Top scored articles (semantic)', {
+    topArticles: topScored.map(s => ({
+      title: s.insight.title.substring(0, 50),
+      score: s.score.toFixed(3),
+      semantic: s.semanticScore.toFixed(3),
+      termMatch: s.termMatchScore.toFixed(3),
+    })),
+  });
+
+  // Deduplicate by title
   const seenTitles = new Set<string>();
   const deduplicated = scored.filter(item => {
     const normalizedTitle = item.insight.title.toLowerCase().trim();
@@ -489,7 +659,56 @@ function selectTopSources(insights: ArticleInsight[], query: string, limit: numb
 }
 
 /**
+ * Fallback source selection for non-topic-specific queries
+ * Uses basic scoring without semantic matching
+ */
+function selectTopSourcesBasic(insights: ArticleInsight[], limit: number): AnalysisSource[] {
+  const now = Date.now();
+  const dayMs = 24 * 60 * 60 * 1000;
+
+  const scored = insights
+    .filter(i => i.keyPoints.length > 0)
+    .map(insight => {
+      // Key points score (0-0.4)
+      const keyPointsScore = Math.min(insight.keyPoints.length / 5, 1) * 0.4;
+
+      // Recency (0-0.4) - decay over 7 days
+      const age = (now - new Date(insight.publishedAt).getTime()) / dayMs;
+      const recencyScore = Math.max(0, 1 - age / 7) * 0.4;
+
+      // Sentiment bonus (0-0.2)
+      const sentimentScore = insight.sentiment !== 'neutral' ? 0.2 : 0;
+
+      return {
+        insight,
+        score: keyPointsScore + recencyScore + sentimentScore,
+      };
+    })
+    .sort((a, b) => b.score - a.score);
+
+  // Deduplicate by title
+  const seenTitles = new Set<string>();
+  const deduplicated = scored.filter(item => {
+    const normalizedTitle = item.insight.title.toLowerCase().trim();
+    if (seenTitles.has(normalizedTitle)) {
+      return false;
+    }
+    seenTitles.add(normalizedTitle);
+    return true;
+  });
+
+  return deduplicated.slice(0, limit).map(({ insight, score }) => ({
+    title: insight.title,
+    url: insight.url,
+    publishedAt: insight.publishedAt.toISOString(),
+    quote: insight.keyPoints[0] || '',
+    relevance: Math.round(score * 100) / 100,
+  }));
+}
+
+/**
  * Reduce phase: Aggregate insights into final analysis
+ * Uses semantic source selection when search terms and embeddings are provided
  */
 async function reduceInsights(
   insights: ArticleInsight[],
@@ -497,7 +716,12 @@ async function reduceInsights(
   daysBack: number,
   llm: ChatOpenAI,
   callbacks: CallbackHandler[],
-  onToken?: TokenStreamCallback
+  onToken?: TokenStreamCallback,
+  semanticContext?: {
+    searchTerms: string[];
+    queryEmbedding: number[];
+    embeddings: OpenRouterEmbeddings;
+  }
 ): Promise<AnalysisOutput> {
   // Calculate sentiment breakdown
   const sentimentCounts = { bullish: 0, bearish: 0, neutral: 0 };
@@ -521,19 +745,31 @@ async function reduceInsights(
   // This ensures consistency - the LLM can cite any source it sees
   const SOURCE_LIMIT = 15;  // Single source of truth for all counts
 
-  // Select top sources - these will be used for EVERYTHING
-  const topSources = selectTopSources(insights, question, SOURCE_LIMIT);
+  // Select top sources using semantic ranking if available, otherwise basic ranking
+  let topSources: AnalysisSource[];
+  if (semanticContext) {
+    topSources = await selectTopSourcesSemantic(
+      insights,
+      question,
+      semanticContext.searchTerms,
+      semanticContext.queryEmbedding,
+      semanticContext.embeddings,
+      SOURCE_LIMIT
+    );
+  } else {
+    topSources = selectTopSourcesBasic(insights, SOURCE_LIMIT);
+  }
 
   // Format sources for citation in prompt (numbered list)
   // ALL selected sources get [Source N] numbers - no subset!
   const sourcesForCitation = topSources
-    .map((source, idx) => `[Source ${idx + 1}] "${source.title}" - ${source.quote}`)
+    .map((source: AnalysisSource, idx: number) => `[Source ${idx + 1}] "${source.title}" - ${source.quote}`)
     .join('\n');
 
   // Build insights summary from the SAME sources (not a separate selection)
   // This ensures insights shown to LLM match citable sources
   const insightsSummary = topSources
-    .map((source) => {
+    .map((source: AnalysisSource) => {
       // Find the original insight for this source to get sentiment/keyPoints
       const insight = insights.find(i => i.title === source.title);
       if (!insight) return null;
@@ -775,15 +1011,44 @@ export async function createAnalysisAgent(
         return cachedOutput;
       }
 
-      // Fetch articles with cached insights
+      // SEMANTIC PRE-FILTERING: Find relevant articles using LLM query expansion
+      // Uses dynamic LLM understanding instead of hardcoded dictionaries
       onProgress?.({ phase: 'fetching', current: 0, total: 0, cached: 0 });
-      debugLogger.info('AGENT_ANALYSIS', 'Fetching articles with cached insights', { daysBack });
-      const articles = await fetchArticlesWithInsights(daysBack);
+      const embeddings = createOpenRouterEmbeddings();
+      const { articleIds: relevantIds, isTopicSpecific, searchTerms } = await findRelevantArticleIds(
+        question,
+        daysBack,
+        embeddings,
+        llm  // Pass LLM for dynamic query expansion
+      );
+
+      // Create query embedding for semantic source ranking
+      let queryEmbedding: number[] = [];
+      if (isTopicSpecific && searchTerms.length > 0) {
+        const searchQuery = searchTerms.join(' ');
+        queryEmbedding = await embeddings.embedQuery(searchQuery);
+      }
+
+      // Fetch articles - filtered if topic-specific, all otherwise
+      debugLogger.info('AGENT_ANALYSIS', 'Fetching articles with cached insights', {
+        daysBack,
+        isTopicSpecific,
+        relevantIdsCount: relevantIds.size,
+        searchTerms: searchTerms.slice(0, 5),
+      });
+
+      const articles = await fetchArticlesWithInsights(
+        daysBack,
+        isTopicSpecific && relevantIds.size > 0 ? relevantIds : undefined
+      );
 
       if (articles.length === 0) {
         debugLogger.warn('AGENT_ANALYSIS', 'No articles found');
+        const noArticlesMsg = isTopicSpecific
+          ? `No articles found about this topic in the last ${daysBack} days.`
+          : `No articles found in the last ${daysBack} days to analyze.`;
         return {
-          summary: `No articles found in the last ${daysBack} days to analyze.`,
+          summary: noArticlesMsg,
           sentiment: { overall: 'neutral', bullishPercent: 0, bearishPercent: 0 },
           trends: [],
           articlesAnalyzed: 0,
@@ -797,14 +1062,26 @@ export async function createAnalysisAgent(
         };
       }
 
+      debugLogger.info('AGENT_ANALYSIS', 'Articles fetched for analysis', {
+        totalArticles: articles.length,
+        isTopicFiltered: isTopicSpecific && relevantIds.size > 0,
+        sampleTitles: articles.slice(0, 3).map(a => a.title.substring(0, 50)),
+      });
+
       // Map: Extract insights from each article (with caching)
       debugLogger.info('AGENT_ANALYSIS', `Processing ${articles.length} articles`);
       const insights = await mapArticles(articles, llm, callbacks, onProgress);
 
-      // Reduce: Aggregate into final analysis
+      // Reduce: Aggregate into final analysis with semantic context
       onProgress?.({ phase: 'summarizing', current: articles.length, total: articles.length, cached: insights.filter(i => i.fromCache).length });
       debugLogger.info('AGENT_ANALYSIS', 'Generating analysis summary');
-      const output = await reduceInsights(insights, question, daysBack, llm, callbacks, onToken);
+
+      // Pass semantic context for intelligent source ranking
+      const semanticContext = isTopicSpecific && searchTerms.length > 0
+        ? { searchTerms, queryEmbedding, embeddings }
+        : undefined;
+
+      const output = await reduceInsights(insights, question, daysBack, llm, callbacks, onToken, semanticContext);
 
       // Cache the output for future identical queries
       setCachedAnalysis(question, daysBack, output, articles.length);
