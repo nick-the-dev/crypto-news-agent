@@ -20,6 +20,12 @@ export async function runNewsIngestionJob(): Promise<void> {
     return;
   }
 
+  // Skip if paused due to active requests
+  if (!ingestionQueue.shouldRun()) {
+    debugLogger.info('JOB', 'Ingestion paused for active request, skipping');
+    return;
+  }
+
   isJobRunning = true;
   const startTime = Date.now();
   let jobRunId: string | null = null;

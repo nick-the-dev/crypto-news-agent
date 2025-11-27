@@ -1,161 +1,121 @@
 import { DynamicStructuredTool } from '@langchain/core/tools';
+import { ChatOpenAI } from '@langchain/openai';
 import { z } from 'zod';
-import { prisma } from '../utils/db';
 import { OpenRouterEmbeddings } from '../agents/llm';
 import { debugLogger } from '../utils/debug-logger';
+import {
+  rewriteQuery,
+  hybridSearch,
+  rerank,
+  deduplicateByArticle,
+  assessConfidence,
+} from '../search';
 
-// Simplified schema to avoid type recursion issues
 const SearchNewsSchema = z.object({
-  query: z.string(),
-  daysBack: z.number().int().min(1).max(30).optional(),
-  limit: z.number().int().min(1).max(20).optional(),
+  query: z.string().describe('Search query for crypto news'),
+  daysBack: z.number().int().min(1).max(30).optional().describe('Days to look back (1-30, default 7)'),
+  limit: z.number().int().min(1).max(20).optional().describe('Max results (1-20, default 7)'),
 });
 
 type SearchNewsInput = z.infer<typeof SearchNewsSchema>;
 
-interface RawSearchResult {
-  chunkId: string;
-  chunkContent: string;
-  chunkIndex: number;
-  isIntro: boolean;
-  isSummary: boolean;
-  similarity: number;
-  articleId: string;
+export interface SearchResult {
+  sourceNumber: number;
   title: string;
-  summary: string;
-  source: string;
   url: string;
-  publishedAt: Date;
+  source: string;
+  publishedAt: string;
+  quote: string;
+  relevance: number;
 }
 
-/**
- * Calculate composite score for search result
- */
-function calculateScore(result: RawSearchResult): number {
-  const similarity = result.similarity;
-  const introBoost = result.isIntro ? 1.2 : 1.0;
-  const summaryBoost = result.isSummary ? 1.5 : 1.0;
-  const daysAgo = (Date.now() - result.publishedAt.getTime()) / (1000 * 60 * 60 * 24);
-  const recencyWeight = Math.exp(-daysAgo * 0.15);
-
-  return similarity * introBoost * summaryBoost * recencyWeight;
+export interface SearchResponse {
+  articles: SearchResult[];
+  totalFound: number;
+  confidence: {
+    level: string;
+    score: number;
+    caveat?: string;
+  };
+  expandedQuery?: string;
 }
 
-/**
- * Deduplicate results by article, keeping highest score
- */
-function deduplicateByArticle(
-  results: (RawSearchResult & { score: number })[]
-): (RawSearchResult & { score: number })[] {
-  const articleMap = new Map<string, RawSearchResult & { score: number }>();
-
-  for (const result of results) {
-    const existing = articleMap.get(result.articleId);
-    if (!existing || result.score > existing.score) {
-      articleMap.set(result.articleId, result);
-    }
-  }
-
-  return Array.from(articleMap.values());
-}
-
-/**
- * Create searchNews tool for vector search
- */
-export function createSearchNewsTool(embeddings: OpenRouterEmbeddings): DynamicStructuredTool {
+export function createSearchNewsTool(
+  embeddings: OpenRouterEmbeddings,
+  llm: ChatOpenAI
+): DynamicStructuredTool {
   return new DynamicStructuredTool({
     name: 'search_crypto_news',
-    description: 'Search for relevant crypto news articles using semantic search. Returns articles with titles, URLs, summaries, and relevant quotes. Parameters: query (string), daysBack (number 1-30, default 7), limit (number 1-20, default 7).',
+    description:
+      'Search for relevant crypto news articles. Uses query expansion, hybrid search (vector + lexical), and intelligent reranking for best results.',
     schema: SearchNewsSchema,
-    func: async ({ query, daysBack, limit }: SearchNewsInput) => {
-      const finalDaysBack = daysBack ?? 7;
-      const finalLimit = limit ?? 7;
-      const stepId = debugLogger.stepStart('TOOL_SEARCH_NEWS', 'Executing search_crypto_news tool', {
+    func: async ({ query, daysBack = 7, limit = 7 }: SearchNewsInput): Promise<string> => {
+      const stepId = debugLogger.stepStart('SEARCH_NEWS', 'Executing 4-stage search pipeline', {
         query,
-        daysBack: finalDaysBack,
-        limit: finalLimit,
+        daysBack,
+        limit,
       });
 
       try {
-        // Step 1: Generate query embedding
-        debugLogger.info('TOOL_SEARCH_NEWS', 'Generating embedding for query');
-        const queryEmbedding = await embeddings.embedQuery(query);
-
-        // Step 2: Calculate date filter
-        const dateFilter = new Date();
-        dateFilter.setDate(dateFilter.getDate() - finalDaysBack);
-
-        // Step 3: Execute vector search
-        debugLogger.info('TOOL_SEARCH_NEWS', 'Executing vector search', {
-          dateFilter: dateFilter.toISOString(),
-          similarityThreshold: 0.5,
+        // Stage 1: Query Rewriting
+        debugLogger.info('SEARCH_NEWS', 'Stage 1: Rewriting query');
+        const expandedQuery = await rewriteQuery(query, llm);
+        debugLogger.info('SEARCH_NEWS', 'Query expanded', {
+          original: query,
+          normalized: expandedQuery.normalized,
         });
 
-        const results = await prisma.$queryRaw<RawSearchResult[]>`
-          SELECT
-            c.id as "chunkId",
-            c.content as "chunkContent",
-            c."chunkIndex",
-            c."isIntro",
-            c."isSummary",
-            1 - (e.embedding <=> ${JSON.stringify(queryEmbedding)}::vector) as similarity,
-            a.id as "articleId",
-            a.title,
-            a.summary,
-            a.source,
-            a.url,
-            a."publishedAt"
-          FROM "ArticleEmbedding" e
-          JOIN "ArticleChunk" c ON e."chunkId" = c.id
-          JOIN "Article" a ON c."articleId" = a.id
-          WHERE
-            a."publishedAt" >= ${dateFilter}
-            AND (1 - (e.embedding <=> ${JSON.stringify(queryEmbedding)}::vector)) >= 0.5
-          ORDER BY similarity DESC
-          LIMIT 20
-        `;
+        // Stage 2: Hybrid Search
+        debugLogger.info('SEARCH_NEWS', 'Stage 2: Hybrid search');
+        const hybridResults = await hybridSearch(expandedQuery, embeddings, {
+          daysBack,
+          limit: limit * 3, // Get more candidates for reranking
+          vectorThreshold: 0.3,
+        });
+        debugLogger.info('SEARCH_NEWS', `Found ${hybridResults.length} hybrid candidates`);
 
-        if (results.length === 0) {
-          debugLogger.stepFinish(stepId, { resultCount: 0 });
-          return JSON.stringify({
-            message: 'No relevant articles found for the given query and timeframe.',
-            articles: [],
-          });
-        }
+        // Stage 3: Reranking
+        debugLogger.info('SEARCH_NEWS', 'Stage 3: Reranking');
+        const reranked = rerank(expandedQuery.normalized, hybridResults, { topK: limit * 2 });
+        const deduplicated = deduplicateByArticle(reranked);
+        const finalResults = deduplicated.slice(0, limit);
+        debugLogger.info('SEARCH_NEWS', `Reranked to ${finalResults.length} results`);
 
-        // Step 4: Score and rank results
-        const scoredResults = results.map(r => ({
-          ...r,
-          score: calculateScore(r),
-        }));
-        scoredResults.sort((a, b) => b.score - a.score);
+        // Stage 4: Confidence Assessment
+        debugLogger.info('SEARCH_NEWS', 'Stage 4: Confidence assessment');
+        const confidence = assessConfidence(finalResults);
 
-        // Step 5: Deduplicate by article
-        const deduplicatedResults = deduplicateByArticle(scoredResults);
-
-        // Step 6: Select top results
-        const topResults = deduplicatedResults.slice(0, finalLimit);
-
-        const articles = topResults.map((r, index) => ({
-          sourceNumber: index + 1,
+        // Format response
+        const articles: SearchResult[] = finalResults.map((r, idx) => ({
+          sourceNumber: idx + 1,
           title: r.title,
           url: r.url,
+          source: r.source,
           publishedAt: r.publishedAt.toISOString(),
-          quote: r.chunkContent,
-          relevance: Math.round(r.similarity * 100) / 100,
+          quote: r.chunkContent.substring(0, 500),
+          relevance: Math.round(r.finalScore * 100) / 100,
         }));
+
+        const response: SearchResponse = {
+          articles,
+          totalFound: articles.length,
+          confidence: {
+            level: confidence.level,
+            score: confidence.score,
+            caveat: confidence.caveat,
+          },
+          expandedQuery: expandedQuery.normalized,
+        };
 
         debugLogger.stepFinish(stepId, {
           resultCount: articles.length,
-          sources: articles.map(a => a.title.substring(0, 50)),
+          confidenceLevel: confidence.level,
+          confidenceScore: confidence.score,
         });
 
-        return JSON.stringify({
-          articles,
-          totalFound: articles.length,
-        });
+        return JSON.stringify(response);
       } catch (error) {
-        debugLogger.stepError(stepId, 'TOOL_SEARCH_NEWS', 'Error in search_crypto_news tool', error);
+        debugLogger.stepError(stepId, 'SEARCH_NEWS', 'Search pipeline error', error);
         throw error;
       }
     },

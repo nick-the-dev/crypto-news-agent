@@ -1,10 +1,29 @@
 import { Prisma } from '@prisma/client';
+import { ChatOpenAI } from '@langchain/openai';
 import { RawArticle } from '../types';
 import { prisma } from '../utils/db';
 import { generateEmbeddingsBatch, generateSummariesBatch } from '../agents/llm';
 import { chunkArticle } from './chunker';
 import { debugLogger } from '../utils/debug-logger';
 import { processConcurrently, chunkArray } from '../utils/concurrency';
+import { analyzeArticleForIngestion } from '../agents/analysis';
+
+// Shared LLM for analysis during ingestion
+let ingestionLLM: ChatOpenAI | null = null;
+
+function getIngestionLLM(): ChatOpenAI {
+  if (!ingestionLLM) {
+    ingestionLLM = new ChatOpenAI({
+      modelName: 'openai/gpt-4.1-nano',
+      temperature: 0,
+      configuration: {
+        baseURL: 'https://openrouter.ai/api/v1',
+        apiKey: process.env.OPENROUTER_API_KEY,
+      },
+    });
+  }
+  return ingestionLLM;
+}
 
 export async function processArticle(
   article: RawArticle,
@@ -102,6 +121,37 @@ export async function processArticle(
       chunksStored: chunkData.length,
       embeddingsStored: embeddings.length
     });
+
+    // Step 4: Pre-analyze article for insights (non-blocking)
+    const analysisStepId = debugLogger.stepStart('INGESTION_ANALYSIS', 'Pre-analyzing article for insights', {
+      url: article.url
+    });
+
+    try {
+      const llm = getIngestionLLM();
+      const content = preGeneratedSummary || article.content;
+      const insights = await analyzeArticleForIngestion(article.title, content, llm);
+
+      // Update article with pre-computed insights
+      await prisma.article.updateMany({
+        where: { url: article.url },
+        data: {
+          sentiment: insights.sentiment,
+          keyPoints: insights.keyPoints,
+          entities: insights.entities,
+          analyzedAt: new Date(),
+        },
+      });
+
+      debugLogger.stepFinish(analysisStepId, {
+        sentiment: insights.sentiment,
+        keyPointsCount: insights.keyPoints.length,
+        entitiesCount: insights.entities.length,
+      });
+    } catch (analysisError) {
+      // Non-blocking - log and continue
+      debugLogger.stepError(analysisStepId, 'INGESTION_ANALYSIS', 'Pre-analysis failed (non-critical)', analysisError);
+    }
 
     debugLogger.stepFinish(stepId, {
       url: article.url,

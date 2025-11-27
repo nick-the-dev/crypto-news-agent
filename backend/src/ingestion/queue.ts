@@ -7,7 +7,36 @@ import { debugLogger } from '../utils/debug-logger';
 
 class IngestionQueue {
   private isIngesting = false;
+  private isPaused = false;
+  private activeRequests = 0;
   private waitingRequests: Array<(result: IngestionStats) => void> = [];
+
+  /**
+   * Pause ingestion (for use during active /ask requests)
+   */
+  pause(): void {
+    this.activeRequests++;
+    this.isPaused = true;
+    debugLogger.info('INGESTION', 'Paused for active request', { activeRequests: this.activeRequests });
+  }
+
+  /**
+   * Resume ingestion after request completes
+   */
+  resume(): void {
+    this.activeRequests = Math.max(0, this.activeRequests - 1);
+    if (this.activeRequests === 0) {
+      this.isPaused = false;
+      debugLogger.info('INGESTION', 'Resumed after request completed');
+    }
+  }
+
+  /**
+   * Check if ingestion should run
+   */
+  shouldRun(): boolean {
+    return !this.isPaused && !this.isIngesting;
+  }
 
   async ingest(): Promise<IngestionStats> {
     const stepId = debugLogger.stepStart('INGESTION', 'Starting ingestion process', {
