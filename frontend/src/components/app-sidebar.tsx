@@ -118,17 +118,20 @@ export function AppSidebar() {
   return (
     <Sidebar collapsible="icon" className="border-r">
       <SidebarHeader className="border-b border-sidebar-border">
-        <div className="flex items-center gap-2 px-2 py-2">
+        <button
+          onClick={handleNewChat}
+          className="flex items-center gap-2 px-2 py-2 hover:opacity-80 transition-opacity"
+        >
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
             <Sparkles className="h-4 w-4" />
           </div>
           {!isCollapsed && (
-            <div className="flex flex-col">
+            <div className="flex flex-col text-left">
               <span className="text-sm font-semibold">Crypto News</span>
               <span className="text-xs text-muted-foreground">AI Agent</span>
             </div>
           )}
-        </div>
+        </button>
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
