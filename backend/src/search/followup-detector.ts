@@ -48,7 +48,7 @@ Types:
 
 DEFAULT TO "new_query" when uncertain. It's safer to search than to not search.
 
-Return JSON: {type, confidence (0-1), reasoning, refinedQuery (for refinements only)}`;
+Return JSON with keys: type, confidence (0-1), reasoning, refinedQuery (for refinements only)`;
 
 const HUMAN_PROMPT = `CONVERSATION HISTORY:
 {history}
