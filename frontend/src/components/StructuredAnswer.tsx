@@ -177,32 +177,32 @@ export function StructuredAnswer({ answer, streamingTldr, streamingDetails }: Pr
       <Card>
         <CardContent className="pt-4 sm:pt-6">
           <div className="text-muted-foreground leading-relaxed text-sm sm:text-base">
-            {/* TL;DR section - only show header and confidence when there are sources */}
-            <div className="mb-3 sm:mb-4">
-              {answer.sources.length > 0 && (
+            {/* TL;DR section - only show when there are sources (actual news retrieval) */}
+            {answer.sources.length > 0 && (
+              <div className="mb-3 sm:mb-4">
                 <div className="flex items-center justify-between gap-2 mb-1">
                   <h4 className="text-xs sm:text-sm font-semibold text-muted-foreground uppercase tracking-wide">TL;DR</h4>
                   <ConfidenceBadge score={answer.confidence} />
                 </div>
-              )}
-              <div className={`text-foreground ${answer.sources.length > 0 ? 'text-base sm:text-lg font-semibold mb-2' : 'text-sm sm:text-base'}`}>
-                <ReactMarkdown
-                  components={{
-                    p: ({ children }: ComponentPropsWithoutRef<'p'>) => <span>{children}</span>,
-                    strong: ({ children }: ComponentPropsWithoutRef<'strong'>) => (
-                      <strong className="font-bold">{children}</strong>
-                    ),
-                  }}
-                >
-                  {streamingTldr || answer.tldr}
-                </ReactMarkdown>
-                {streamingTldr && !streamingDetails && <span className="inline-block w-2 h-4 sm:h-5 bg-primary animate-pulse ml-1"></span>}
+                <div className="text-base sm:text-lg font-semibold text-foreground mb-2">
+                  <ReactMarkdown
+                    components={{
+                      p: ({ children }: ComponentPropsWithoutRef<'p'>) => <span>{children}</span>,
+                      strong: ({ children }: ComponentPropsWithoutRef<'strong'>) => (
+                        <strong className="font-bold">{children}</strong>
+                      ),
+                    }}
+                  >
+                    {streamingTldr || answer.tldr}
+                  </ReactMarkdown>
+                  {streamingTldr && !streamingDetails && <span className="inline-block w-2 h-4 sm:h-5 bg-primary animate-pulse ml-1"></span>}
+                </div>
               </div>
-            </div>
+            )}
 
-            {/* Details section */}
+            {/* Details section - always show for news, or show as main content when no sources */}
             {(streamingDetails || answer.details.content) && (
-              <div className="text-muted-foreground mb-4 sm:mb-6">
+              <div className={answer.sources.length > 0 ? 'text-muted-foreground mb-4 sm:mb-6' : 'text-foreground'}>
                 {streamingDetails ? (
                   <>
                     {renderMarkdownContent(streamingDetails)}
