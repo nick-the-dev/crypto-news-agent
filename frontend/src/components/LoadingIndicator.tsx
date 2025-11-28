@@ -1,3 +1,6 @@
+import { Spinner } from '@/components/ui/spinner';
+import { Skeleton } from '@/components/ui/skeleton';
+
 interface Props {
   status: string;
 }
@@ -5,13 +8,18 @@ interface Props {
 export function LoadingIndicator({ status }: Props) {
   return (
     <div className="flex flex-col items-center justify-center py-12">
-      <div className="relative w-16 h-16 mb-4">
-        <div className="absolute top-0 left-0 w-full h-full border-4 border-blue-200 rounded-full animate-spin border-t-blue-600"></div>
-        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-2xl">
+      <div className="relative mb-4">
+        <Spinner size="lg" className="text-primary" />
+        <span className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-2xl">
           🤖
-        </div>
+        </span>
       </div>
-      <p className="text-gray-600">{status}</p>
+      <p className="text-muted-foreground mb-4">{status}</p>
+      <div className="w-full max-w-md space-y-3">
+        <Skeleton className="h-4 w-3/4" />
+        <Skeleton className="h-4 w-full" />
+        <Skeleton className="h-4 w-5/6" />
+      </div>
     </div>
   );
 }

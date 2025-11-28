@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
-import { Chat, ChatMessage, ChatListItem, ArticleSource } from '../types';
+import { Chat, ChatMessage, ChatListItem, ArticleSource } from '@/types';
 
 interface ChatContextType {
   chats: ChatListItem[];

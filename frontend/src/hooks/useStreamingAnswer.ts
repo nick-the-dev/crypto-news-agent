@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from 'react';
-import { StructuredAnswer, ArticleSource, SSEEvent, SSEEventType } from '../types';
+import { StructuredAnswer, ArticleSource, SSEEvent, SSEEventType } from '@/types';
 
 interface StreamingState {
   isStreaming: boolean;

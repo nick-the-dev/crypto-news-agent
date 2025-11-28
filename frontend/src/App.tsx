@@ -1,46 +1,22 @@
-import { useState, createContext, useContext } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { ChatProvider } from './context/ChatContext';
-import { ChatSidebar } from './components/ChatSidebar';
-import { ChatPage } from './pages/ChatPage';
-
-// Sidebar context for mobile toggle
-interface SidebarContextType {
-  isOpen: boolean;
-  setIsOpen: (open: boolean) => void;
-  toggle: () => void;
-}
-
-const SidebarContext = createContext<SidebarContextType | null>(null);
-
-export function useSidebar() {
-  const context = useContext(SidebarContext);
-  if (!context) {
-    throw new Error('useSidebar must be used within SidebarProvider');
-  }
-  return context;
-}
+import { ChatProvider } from '@/context/ChatContext';
+import { ThemeProvider } from '@/components/theme-provider';
+import { AppSidebar } from '@/components/app-sidebar';
+import { SidebarProvider, SidebarInset, SidebarTrigger } from '@/components/ui/sidebar';
+import { ChatPage } from '@/pages/ChatPage';
+import { Separator } from '@/components/ui/separator';
 
 function AppLayout() {
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-
-  const sidebarContext: SidebarContextType = {
-    isOpen: sidebarOpen,
-    setIsOpen: setSidebarOpen,
-    toggle: () => setSidebarOpen(prev => !prev),
-  };
-
   return (
-    <SidebarContext.Provider value={sidebarContext}>
-      <div className="flex h-screen bg-gray-100">
-        {/* Mobile overlay */}
-        {sidebarOpen && (
-          <div
-            className="fixed inset-0 bg-black/50 z-40 md:hidden"
-            onClick={() => setSidebarOpen(false)}
-          />
-        )}
-        <ChatSidebar />
+    <SidebarProvider defaultOpen={true}>
+      <AppSidebar />
+      <SidebarInset>
+        {/* Mobile header with sidebar trigger */}
+        <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4 md:hidden">
+          <SidebarTrigger className="-ml-1" />
+          <Separator orientation="vertical" className="mr-2 h-4" />
+          <span className="font-semibold text-sm">Crypto News Agent</span>
+        </header>
         <main className="flex-1 flex flex-col overflow-hidden">
           <Routes>
             <Route path="/" element={<ChatPage />} />
@@ -48,18 +24,20 @@ function AppLayout() {
             <Route path="/chat/:threadId" element={<ChatPage />} />
           </Routes>
         </main>
-      </div>
-    </SidebarContext.Provider>
+      </SidebarInset>
+    </SidebarProvider>
   );
 }
 
 function App() {
   return (
-    <BrowserRouter>
-      <ChatProvider>
-        <AppLayout />
-      </ChatProvider>
-    </BrowserRouter>
+    <ThemeProvider defaultTheme="dark" storageKey="crypto-news-ui-theme">
+      <BrowserRouter>
+        <ChatProvider>
+          <AppLayout />
+        </ChatProvider>
+      </BrowserRouter>
+    </ThemeProvider>
   );
 }
 
