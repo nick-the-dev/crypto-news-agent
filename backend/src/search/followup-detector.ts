@@ -100,11 +100,16 @@ async function detectWithLLM(
       };
     }
 
+    // LLM sometimes returns "null" as a string instead of actual null
+    const refinedQuery = result.refinedQuery && result.refinedQuery !== 'null'
+      ? result.refinedQuery
+      : undefined;
+
     return {
       type: result.type,
       confidence: result.confidence,
       reasoning: result.reasoning,
-      refinedQuery: result.refinedQuery ?? undefined,
+      refinedQuery,
     };
   } catch (error) {
     debugLogger.stepError(stepId, 'FOLLOWUP_DETECT', 'LLM classification failed', error);

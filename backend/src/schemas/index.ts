@@ -29,13 +29,25 @@ export const RetrievalMetricsSchema = z.object({
 export type RetrievalMetrics = z.infer<typeof RetrievalMetricsSchema>;
 
 /**
- * Schema for Retrieval Agent output
+ * Schema for LLM-generated retrieval output (excludes retrievalMetrics to avoid truncation)
+ * retrievalMetrics is added programmatically after LLM response
+ */
+export const RetrievalLLMOutputSchema = z.object({
+  summary: z.string().describe('Summary of the news with [Source N] citations'),
+  sources: z.array(SourceSchema).describe('Array of source articles'),
+  citationCount: z.number().int().min(0).describe('Number of citations used'),
+});
+
+export type RetrievalLLMOutput = z.infer<typeof RetrievalLLMOutputSchema>;
+
+/**
+ * Schema for Retrieval Agent output (full schema with metrics)
  */
 export const RetrievalOutputSchema = z.object({
   summary: z.string().describe('Summary of the news with [Source N] citations'),
   sources: z.array(SourceSchema).describe('Array of source articles'),
   citationCount: z.number().int().min(0).describe('Number of citations used'),
-  retrievalMetrics: RetrievalMetricsSchema.optional().describe('Metrics about the retrieval process'),
+  retrievalMetrics: RetrievalMetricsSchema.optional().nullable().describe('Metrics about the retrieval process'),
 });
 
 export type RetrievalOutput = z.infer<typeof RetrievalOutputSchema>;
@@ -75,7 +87,7 @@ export const FinalResponseSchema = z.object({
   metadata: z.object({
     retriesUsed: z.number().int().min(0).describe('Number of retry attempts'),
     timestamp: z.string().describe('Response timestamp'),
-    retrievalMetrics: RetrievalMetricsSchema.optional().describe('Metrics about article retrieval'),
+    retrievalMetrics: RetrievalMetricsSchema.optional().nullable().describe('Metrics about article retrieval'),
   }).describe('Response metadata'),
 });
 

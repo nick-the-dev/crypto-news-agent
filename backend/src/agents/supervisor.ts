@@ -241,13 +241,16 @@ Provide a helpful clarification response:`],
    */
   async function intentRouterNode(state: AgentStateType): Promise<Partial<AgentStateType>> {
     // If this is a refinement, use the refined query
-    let queryToAnalyze = state.followupResult?.refinedQuery || state.question;
+    // Guard against LLM returning "null" as a string instead of actual null
+    const refinedQuery = state.followupResult?.refinedQuery;
+    const hasValidRefinedQuery = refinedQuery && refinedQuery !== 'null' && refinedQuery.trim() !== '';
+    let queryToAnalyze = hasValidRefinedQuery ? refinedQuery : state.question;
 
-    // SAFEGUARD: If this is a refinement but no refinedQuery was generated,
+    // SAFEGUARD: If this is a refinement but no valid refinedQuery was generated,
     // try to extract the original topic from conversation history
     if (
       state.followupResult?.type === 'refinement' &&
-      !state.followupResult?.refinedQuery &&
+      !hasValidRefinedQuery &&
       state.conversationContext?.turns.length
     ) {
       // Find the first user message (usually contains the original topic)

@@ -3,7 +3,7 @@ import { ChatOpenAI } from '@langchain/openai';
 import { DynamicStructuredTool } from '@langchain/core/tools';
 import { RunnableSequence } from '@langchain/core/runnables';
 import { CallbackHandler } from '@langfuse/langchain';
-import { RetrievalOutputSchema, RetrievalOutput } from '../schemas';
+import { RetrievalLLMOutputSchema, RetrievalLLMOutput, RetrievalOutput } from '../schemas';
 import { debugLogger } from '../utils/debug-logger';
 
 const RETRIEVAL_SYSTEM_PROMPT = `You are a crypto news specialist. Your job is to search for and cite relevant crypto news articles.
@@ -110,7 +110,8 @@ export async function createRetrievalAgent(
       // Step 3: Generate summary with structured output
       // CRITICAL: Use RunnableSequence for proper LangFuse sessionId tracking
       // Direct llm.invoke() does NOT trigger handleChainStart, causing orphaned traces with NULL sessionId
-      const summaryLLM = llm.withStructuredOutput<RetrievalOutput>(RetrievalOutputSchema);
+      // Use RetrievalLLMOutputSchema (without retrievalMetrics) to avoid LLM output truncation
+      const summaryLLM = llm.withStructuredOutput<RetrievalLLMOutput>(RetrievalLLMOutputSchema);
 
       // At this point, confidence is medium or high (low/none returned early above)
       const sourcesText = searchResults.articles.map((a: any) => `[Source ${a.sourceNumber}] ${a.title} (${a.publishedAt}): ${a.quote}`).join('\n\n');
