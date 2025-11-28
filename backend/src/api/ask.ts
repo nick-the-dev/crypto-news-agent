@@ -180,6 +180,7 @@ export async function handleAsk(req: Request, res: Response): Promise<void> {
       res.write(`data: ${JSON.stringify({
         queryTimestamp: new Date().toISOString(),
         articlesAnalyzed: cachedAnalysis.articlesAnalyzed,
+        threadId, // Return threadId for conversation continuity
         cached: true,
       })}\n\n`);
 
