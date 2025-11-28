@@ -34,10 +34,18 @@ function setSSEHeaders(res: Response): void {
  * Convert AnalysisOutput to FinalResponse format
  */
 function analysisToFinalResponse(output: AnalysisOutput): FinalResponse {
-  const { summary, sentiment, articlesAnalyzed } = output;
+  const { summary, sentiment, articlesAnalyzed, retrievalMetrics } = output;
   const sentimentInfo = `\n\nMarket sentiment: ${sentiment.overall} (${sentiment.bullishPercent}% bullish, ${sentiment.bearishPercent}% bearish)`;
   const articlesInfo = `\n\n📰 Based on ${articlesAnalyzed} articles analyzed`;
-  const finalAnswer = `${summary}${sentimentInfo}${articlesInfo}`;
+
+  // Build retrieval metrics text
+  let metricsText = '';
+  if (retrievalMetrics && retrievalMetrics.articlesRetrievedByVector > 0) {
+    metricsText = `\n\n---\n` +
+      `📊 **Retrieval Metrics:** ${retrievalMetrics.articlesRetrievedByVector} articles retrieved → ${retrievalMetrics.articlesUsedInResponse} used | Similarity: ${retrievalMetrics.topVectorScore.toFixed(2)} (best) · ${retrievalMetrics.avgVectorScore.toFixed(2)} (avg)`;
+  }
+
+  const finalAnswer = `${summary}${sentimentInfo}${articlesInfo}${metricsText}`;
 
   return {
     answer: finalAnswer,
@@ -412,10 +420,31 @@ export async function handleAsk(req: Request, res: Response): Promise<void> {
     // Transform [Source N] to [N] format for frontend
     const streamingAnswer = result.answer.replace(/\[Source (\d+)\]/g, '[$1]');
 
-    // Split into TL;DR (first sentence) and details (full content)
+    // Build retrieval metrics text to append to response
+    const retrievalMetrics = result.metadata.retrievalMetrics;
+    let metricsText = '';
+    if (retrievalMetrics && sources.length > 0) {
+      // Filter to only show articles with actual vector matches (score > 0)
+      const vectorMatches = retrievalMetrics.vectorScores?.filter((s: { score: number }) => s.score > 0) || [];
+
+      // Sort by score descending and get top 5
+      const topScores = [...vectorMatches]
+        .sort((a: { score: number }, b: { score: number }) => b.score - a.score)
+        .slice(0, 5);
+
+      // Calculate score stats
+      const scores = topScores.map((s: { score: number }) => s.score);
+      const maxScore = scores.length > 0 ? Math.max(...scores) : 0;
+      const avgScore = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
+
+      metricsText = `\n\n---\n` +
+        `📊 **Retrieval Metrics:** ${vectorMatches.length} articles retrieved → ${retrievalMetrics.articlesUsed} used | Similarity: ${maxScore.toFixed(2)} (best) · ${avgScore.toFixed(2)} (avg)`;
+    }
+
+    // Split into TL;DR (first sentence) and details (full content with metrics)
     const firstSentenceEnd = streamingAnswer.indexOf('.') + 1;
     const tldrText = streamingAnswer.substring(0, firstSentenceEnd).trim();
-    const detailsText = streamingAnswer;
+    const detailsText = streamingAnswer + metricsText;
 
     // Send TL;DR immediately (no fake streaming)
     res.write(`event: tldr\n`);
@@ -430,12 +459,11 @@ export async function handleAsk(req: Request, res: Response): Promise<void> {
     const citations = citationMatches.map(m => parseInt(m.match(/\d+/)?.[0] || '0'));
 
     // Send structured response in frontend-expected format
-    const retrievalMetrics = result.metadata.retrievalMetrics;
     res.write(`event: structured\n`);
     res.write(`data: ${JSON.stringify({
       tldr: streamingAnswer.split('.')[0] + '.',  // First sentence as TL;DR
       details: {
-        content: streamingAnswer,
+        content: detailsText,  // Includes retrieval metrics
         citations: [...new Set(citations)]  // Unique citations
       },
       confidence: result.confidence,

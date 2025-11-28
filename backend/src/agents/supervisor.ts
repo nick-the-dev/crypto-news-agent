@@ -533,7 +533,15 @@ Provide a helpful clarification response:`],
     // Add articles analyzed count
     const articlesInfo = `\n\n📰 Based on ${articlesAnalyzed} articles analyzed`;
 
-    const finalAnswer = `${summary}${sentimentInfo}${articlesInfo}${validationInfo}`;
+    // Build retrieval metrics text
+    const { retrievalMetrics } = state.analysisOutput;
+    let metricsText = '';
+    if (retrievalMetrics && retrievalMetrics.articlesRetrievedByVector > 0) {
+      metricsText = `\n\n---\n` +
+        `📊 **Retrieval Metrics:** ${retrievalMetrics.articlesRetrievedByVector} articles retrieved → ${retrievalMetrics.articlesUsedInResponse} used | Similarity: ${retrievalMetrics.topVectorScore.toFixed(2)} (best) · ${retrievalMetrics.avgVectorScore.toFixed(2)} (avg)`;
+    }
+
+    const finalAnswer = `${summary}${sentimentInfo}${articlesInfo}${validationInfo}${metricsText}`;
 
     // Add the AI response to conversation history
     return {

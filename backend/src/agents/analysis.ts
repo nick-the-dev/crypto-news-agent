@@ -144,13 +144,18 @@ export function clearAnalysisCache(): void {
  * Uses dynamic LLM-based understanding instead of hardcoded dictionaries
  * @param callbacks - Optional LangFuse callbacks for tracing
  */
+interface VectorSearchResult {
+  articleId: string;
+  similarity: number;
+}
+
 async function findRelevantArticleIds(
   question: string,
   daysBack: number,
   embeddings: OpenRouterEmbeddings,
   llm: ChatOpenAI,
   callbacks?: CallbackHandler[]
-): Promise<{ articleIds: Set<string>; isTopicSpecific: boolean; searchTerms: string[] }> {
+): Promise<{ articleIds: Set<string>; isTopicSpecific: boolean; searchTerms: string[]; vectorResults: VectorSearchResult[] }> {
   const stepId = debugLogger.stepStart('SEMANTIC_PREFILTER', 'Running semantic pre-filter', {
     question: question.substring(0, 50),
   });
@@ -162,7 +167,7 @@ async function findRelevantArticleIds(
 
     if (!expansion.isTopicSpecific) {
       debugLogger.stepFinish(stepId, { isTopicSpecific: false, reason: 'LLM determined query is not topic-specific' });
-      return { articleIds: new Set(), isTopicSpecific: false, searchTerms: [] };
+      return { articleIds: new Set(), isTopicSpecific: false, searchTerms: [], vectorResults: [] };
     }
 
     debugLogger.info('SEMANTIC_PREFILTER', 'LLM expanded query', {
@@ -223,10 +228,10 @@ async function findRelevantArticleIds(
       searchTerms: expansion.searchTerms.slice(0, 5),
     });
 
-    return { articleIds, isTopicSpecific: true, searchTerms: expansion.searchTerms };
+    return { articleIds, isTopicSpecific: true, searchTerms: expansion.searchTerms, vectorResults };
   } catch (error) {
     debugLogger.stepError(stepId, 'SEMANTIC_PREFILTER', 'Semantic pre-filter failed', error);
-    return { articleIds: new Set(), isTopicSpecific: false, searchTerms: [] };
+    return { articleIds: new Set(), isTopicSpecific: false, searchTerms: [], vectorResults: [] };
   }
 }
 
@@ -261,6 +266,13 @@ export interface AnalysisSource {
   relevance: number;
 }
 
+export interface AnalysisRetrievalMetrics {
+  articlesRetrievedByVector: number;
+  articlesUsedInResponse: number;
+  topVectorScore: number;
+  avgVectorScore: number;
+}
+
 export interface AnalysisOutput {
   summary: string;
   sentiment: {
@@ -278,6 +290,7 @@ export interface AnalysisOutput {
   confidence: number;
   topSources: AnalysisSource[];
   citationCount: number;  // Number of [Source N] citations in summary
+  retrievalMetrics?: AnalysisRetrievalMetrics;
 }
 
 export type ProgressCallback = (progress: {
@@ -1043,7 +1056,7 @@ export async function createAnalysisAgent(
       // Uses dynamic LLM understanding instead of hardcoded dictionaries
       onProgress?.({ phase: 'fetching', current: 0, total: 0, cached: 0 });
       const embeddings = createOpenRouterEmbeddings();
-      const { articleIds: relevantIds, isTopicSpecific, searchTerms } = await findRelevantArticleIds(
+      const { articleIds: relevantIds, isTopicSpecific, searchTerms, vectorResults } = await findRelevantArticleIds(
         question,
         daysBack,
         embeddings,
@@ -1111,6 +1124,16 @@ export async function createAnalysisAgent(
         : undefined;
 
       const output = await reduceInsights(insights, question, daysBack, llm, callbacks, onToken, semanticContext);
+
+      // Calculate retrieval metrics from vector search results
+      const vectorScores = vectorResults.map(r => r.similarity).filter(s => s > 0);
+      const retrievalMetrics: AnalysisRetrievalMetrics = {
+        articlesRetrievedByVector: vectorResults.length,
+        articlesUsedInResponse: output.topSources.length,
+        topVectorScore: vectorScores.length > 0 ? Math.max(...vectorScores) : 0,
+        avgVectorScore: vectorScores.length > 0 ? vectorScores.reduce((a, b) => a + b, 0) / vectorScores.length : 0,
+      };
+      output.retrievalMetrics = retrievalMetrics;
 
       // Cache the output for future identical queries
       setCachedAnalysis(question, daysBack, output, articles.length);
