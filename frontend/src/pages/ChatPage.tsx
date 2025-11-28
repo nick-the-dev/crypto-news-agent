@@ -28,9 +28,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
         {isUser ? (
           <p className="whitespace-pre-wrap text-sm sm:text-base">{message.content}</p>
         ) : message.answer ? (
-          <div className="p-1 sm:p-2">
-            <StructuredAnswer answer={message.answer} />
-          </div>
+          <StructuredAnswer answer={message.answer} />
         ) : (
           <p className="px-3 sm:px-4 py-2 sm:py-3 text-muted-foreground whitespace-pre-wrap text-sm sm:text-base">{message.content}</p>
         )}
@@ -225,13 +223,11 @@ export function ChatPage() {
             <div className="flex justify-start mb-4">
               <div className="max-w-[95%] sm:max-w-[85%] bg-card rounded-2xl rounded-bl-md shadow-sm">
                 {answer ? (
-                  <div className="p-1 sm:p-2">
-                    <StructuredAnswer
-                      answer={answer}
-                      streamingTldr={streamingTldr}
-                      streamingDetails={streamingDetails}
-                    />
-                  </div>
+                  <StructuredAnswer
+                    answer={answer}
+                    streamingTldr={streamingTldr}
+                    streamingDetails={streamingDetails}
+                  />
                 ) : (
                   <div className="p-3 sm:p-4">
                     <LoadingIndicator status={status} />
@@ -288,13 +284,11 @@ export function ChatPage() {
                 <div key={message.id} className="flex justify-start mb-4">
                   <div className="max-w-[95%] sm:max-w-[85%] bg-card rounded-2xl rounded-bl-md shadow-sm">
                     {answer ? (
-                      <div className="p-1 sm:p-2">
-                        <StructuredAnswer
-                          answer={answer}
-                          streamingTldr={streamingTldr}
-                          streamingDetails={streamingDetails}
-                        />
-                      </div>
+                      <StructuredAnswer
+                        answer={answer}
+                        streamingTldr={streamingTldr}
+                        streamingDetails={streamingDetails}
+                      />
                     ) : (
                       <div className="p-3 sm:p-4">
                         <LoadingIndicator status={status} />

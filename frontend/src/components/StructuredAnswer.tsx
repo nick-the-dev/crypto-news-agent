@@ -175,7 +175,7 @@ export function StructuredAnswer({ answer, streamingTldr, streamingDetails }: Pr
   return (
     <div className="w-full max-w-4xl mx-auto">
       <Card>
-        <CardContent className="pt-4 sm:pt-6">
+        <CardContent className="px-3 sm:px-4 py-2 sm:py-3">
           <div className="text-muted-foreground leading-relaxed text-sm sm:text-base">
             {/* TL;DR section - only show when there are sources (actual news retrieval) */}
             {answer.sources.length > 0 && (
