@@ -177,13 +177,15 @@ export function StructuredAnswer({ answer, streamingTldr, streamingDetails }: Pr
       <Card>
         <CardContent className="pt-4 sm:pt-6">
           <div className="text-muted-foreground leading-relaxed text-sm sm:text-base">
-            {/* TL;DR section */}
+            {/* TL;DR section - only show header and confidence when there are sources */}
             <div className="mb-3 sm:mb-4">
-              <div className="flex items-center justify-between gap-2 mb-1">
-                <h4 className="text-xs sm:text-sm font-semibold text-muted-foreground uppercase tracking-wide">TL;DR</h4>
-                <ConfidenceBadge score={answer.confidence} />
-              </div>
-              <div className="text-base sm:text-lg font-semibold text-foreground mb-2">
+              {answer.sources.length > 0 && (
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <h4 className="text-xs sm:text-sm font-semibold text-muted-foreground uppercase tracking-wide">TL;DR</h4>
+                  <ConfidenceBadge score={answer.confidence} />
+                </div>
+              )}
+              <div className={`text-foreground ${answer.sources.length > 0 ? 'text-base sm:text-lg font-semibold mb-2' : 'text-sm sm:text-base'}`}>
                 <ReactMarkdown
                   components={{
                     p: ({ children }: ComponentPropsWithoutRef<'p'>) => <span>{children}</span>,
