@@ -1,7 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useChat } from '@/context/ChatContext';
-import { useSidebar } from '@/components/ui/sidebar';
 import { useStreamingAnswer } from '@/hooks/useStreamingAnswer';
 import { QuestionInput } from '@/components/QuestionInput';
 import { LoadingIndicator } from '@/components/LoadingIndicator';

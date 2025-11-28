@@ -12,6 +12,12 @@ RUN npm run build
 # Stage 2: Build Backend
 FROM node:20-slim AS backend-builder
 WORKDIR /app/backend
+
+# Install OpenSSL for Prisma (required before prisma generate)
+RUN apt-get update -y && \
+    apt-get install -y openssl && \
+    rm -rf /var/lib/apt/lists/*
+
 COPY backend/package*.json ./
 COPY backend/prisma ./prisma/
 RUN npm ci

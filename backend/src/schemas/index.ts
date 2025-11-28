@@ -15,12 +15,27 @@ export const SourceSchema = z.object({
 export type Source = z.infer<typeof SourceSchema>;
 
 /**
+ * Schema for retrieval metrics (tracking vector search performance)
+ */
+export const RetrievalMetricsSchema = z.object({
+  articlesRetrieved: z.number().int().min(0).describe('Articles found by vector similarity'),
+  articlesUsed: z.number().int().min(0).describe('Articles used after filtering'),
+  vectorScores: z.array(z.object({
+    title: z.string(),
+    score: z.number(),
+  })).describe('Vector similarity scores for retrieved articles'),
+});
+
+export type RetrievalMetrics = z.infer<typeof RetrievalMetricsSchema>;
+
+/**
  * Schema for Retrieval Agent output
  */
 export const RetrievalOutputSchema = z.object({
   summary: z.string().describe('Summary of the news with [Source N] citations'),
   sources: z.array(SourceSchema).describe('Array of source articles'),
   citationCount: z.number().int().min(0).describe('Number of citations used'),
+  retrievalMetrics: RetrievalMetricsSchema.optional().describe('Metrics about the retrieval process'),
 });
 
 export type RetrievalOutput = z.infer<typeof RetrievalOutputSchema>;
@@ -60,6 +75,7 @@ export const FinalResponseSchema = z.object({
   metadata: z.object({
     retriesUsed: z.number().int().min(0).describe('Number of retry attempts'),
     timestamp: z.string().describe('Response timestamp'),
+    retrievalMetrics: RetrievalMetricsSchema.optional().describe('Metrics about article retrieval'),
   }).describe('Response metadata'),
 });
 

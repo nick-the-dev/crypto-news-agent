@@ -800,6 +800,7 @@ Provide a helpful clarification response:`],
         metadata: {
           retriesUsed: result.retryCount,
           timestamp: new Date().toISOString(),
+          retrievalMetrics: result.retrievalOutput.retrievalMetrics,
         },
       };
 

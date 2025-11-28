@@ -82,6 +82,7 @@ export async function createRetrievalAgent(
           summary: 'No relevant crypto news articles found for this query.',
           sources: [],
           citationCount: 0,
+          retrievalMetrics: searchResults?.retrievalMetrics,
         };
         debugLogger.stepFinish(stepId, fallbackOutput);
         return fallbackOutput;
@@ -100,6 +101,7 @@ export async function createRetrievalAgent(
           summary: `I couldn't find relevant information about this topic in recent crypto news. The search returned ${searchResults.articles.length} articles, but none were directly relevant to your question.`,
           sources: [],
           citationCount: 0,
+          retrievalMetrics: searchResults.retrievalMetrics,
         };
         debugLogger.stepFinish(stepId, lowConfidenceOutput);
         return lowConfidenceOutput;
@@ -148,6 +150,7 @@ export async function createRetrievalAgent(
         summary: summaryResponse.summary,
         sources,
         citationCount: summaryResponse.citationCount,
+        retrievalMetrics: searchResults.retrievalMetrics,
       };
 
       debugLogger.stepFinish(stepId, {

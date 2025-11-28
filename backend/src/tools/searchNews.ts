@@ -29,6 +29,12 @@ export interface SearchResult {
   relevance: number;
 }
 
+export interface RetrievalMetrics {
+  articlesRetrieved: number;  // Count from hybrid search (before reranking)
+  articlesUsed: number;       // Count after all filtering (sent to LLM)
+  vectorScores: Array<{ title: string; score: number }>;  // Vector similarity scores
+}
+
 export interface SearchResponse {
   articles: SearchResult[];
   totalFound: number;
@@ -38,6 +44,7 @@ export interface SearchResponse {
     caveat?: string;
   };
   expandedQuery?: string;
+  retrievalMetrics: RetrievalMetrics;
 }
 
 export function createSearchNewsTool(
@@ -72,14 +79,22 @@ export function createSearchNewsTool(
           limit: limit * 3, // Get more candidates for reranking
           vectorThreshold: 0.4,
         });
-        debugLogger.info('SEARCH_NEWS', `Found ${hybridResults.length} hybrid candidates`);
+        const articlesRetrieved = hybridResults.length;
+        debugLogger.info('SEARCH_NEWS', `Found ${articlesRetrieved} hybrid candidates`);
+
+        // Capture vector scores from hybrid search results
+        const vectorScores = hybridResults.map(r => ({
+          title: r.title,
+          score: Math.round(r.vectorScore * 1000) / 1000,  // Round to 3 decimal places
+        }));
 
         // Stage 3: Reranking
         debugLogger.info('SEARCH_NEWS', 'Stage 3: Reranking');
         const reranked = rerank(expandedQuery.normalized, hybridResults, { topK: limit * 2 });
         const deduplicated = deduplicateByArticle(reranked);
         const finalResults = deduplicated.slice(0, limit);
-        debugLogger.info('SEARCH_NEWS', `Reranked to ${finalResults.length} results`);
+        const articlesUsed = finalResults.length;
+        debugLogger.info('SEARCH_NEWS', `Reranked to ${articlesUsed} results`);
 
         // Stage 4: Confidence Assessment
         debugLogger.info('SEARCH_NEWS', 'Stage 4: Confidence assessment');
@@ -105,6 +120,11 @@ export function createSearchNewsTool(
             caveat: confidence.caveat,
           },
           expandedQuery: expandedQuery.normalized,
+          retrievalMetrics: {
+            articlesRetrieved,
+            articlesUsed,
+            vectorScores,
+          },
         };
 
         debugLogger.stepFinish(stepId, {

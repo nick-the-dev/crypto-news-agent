@@ -213,13 +213,22 @@ export async function handleAsk(req: Request, res: Response): Promise<void> {
       const citationMatches = streamingAnswer.match(/\[(\d+)\]/g) || [];
       const citations = citationMatches.map(m => parseInt(m.match(/\d+/)?.[0] || '0'));
 
+      const cachedRetrievalMetrics = result.metadata.retrievalMetrics;
       res.write(`event: structured\n`);
       res.write(`data: ${JSON.stringify({
         tldr: tldrText,
         details: { content: streamingAnswer, citations: [...new Set(citations)] },
         confidence: result.confidence,
         sources,
-        metadata: { queryTimestamp: result.metadata.timestamp, articlesAnalyzed: sources.length, processingTime: Date.now() - startTime, cached: true }
+        metadata: {
+          queryTimestamp: result.metadata.timestamp,
+          articlesAnalyzed: sources.length,
+          processingTime: Date.now() - startTime,
+          cached: true,
+          articlesRetrieved: cachedRetrievalMetrics?.articlesRetrieved,
+          articlesUsed: cachedRetrievalMetrics?.articlesUsed,
+          vectorScores: cachedRetrievalMetrics?.vectorScores,
+        }
       })}\n\n`);
 
       res.write(`event: done\n`);
@@ -421,6 +430,7 @@ export async function handleAsk(req: Request, res: Response): Promise<void> {
     const citations = citationMatches.map(m => parseInt(m.match(/\d+/)?.[0] || '0'));
 
     // Send structured response in frontend-expected format
+    const retrievalMetrics = result.metadata.retrievalMetrics;
     res.write(`event: structured\n`);
     res.write(`data: ${JSON.stringify({
       tldr: streamingAnswer.split('.')[0] + '.',  // First sentence as TL;DR
@@ -433,7 +443,11 @@ export async function handleAsk(req: Request, res: Response): Promise<void> {
       metadata: {
         queryTimestamp: result.metadata.timestamp,
         articlesAnalyzed: sources.length,
-        processingTime: Date.now() - startTime
+        processingTime: Date.now() - startTime,
+        // Retrieval metrics: articles retrieved vs used
+        articlesRetrieved: retrievalMetrics?.articlesRetrieved,
+        articlesUsed: retrievalMetrics?.articlesUsed,
+        vectorScores: retrievalMetrics?.vectorScores,
       }
     })}\n\n`);
 

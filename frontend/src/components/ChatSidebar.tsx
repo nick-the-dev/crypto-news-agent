@@ -1,6 +1,6 @@
 import { useNavigate, useParams } from 'react-router-dom';
 import { useChat } from '../context/ChatContext';
-import { useSidebar } from '../App';
+import { useSidebar } from '@/components/ui/sidebar';
 import { ChatListItem } from '../types';
 
 function formatTimeAgo(dateString: string): string {
@@ -70,17 +70,17 @@ export function ChatSidebar() {
   const navigate = useNavigate();
   const { threadId } = useParams<{ threadId: string }>();
   const { chats, startNewChat, deleteChat } = useChat();
-  const { isOpen, setIsOpen } = useSidebar();
+  const { open, setOpen } = useSidebar();
 
   const handleNewChat = () => {
     startNewChat();
     navigate('/chat');
-    setIsOpen(false);
+    setOpen(false);
   };
 
   const handleSelectChat = (chatThreadId: string) => {
     navigate(`/chat/${chatThreadId}`);
-    setIsOpen(false);
+    setOpen(false);
   };
 
   const handleDeleteChat = (chatThreadId: string) => {
@@ -96,7 +96,7 @@ export function ChatSidebar() {
         fixed md:relative inset-y-0 left-0 z-50
         w-72 bg-white border-r border-gray-200 flex flex-col h-full
         transform transition-transform duration-300 ease-in-out
-        ${isOpen ? 'translate-x-0' : '-translate-x-full'}
+        ${open ? 'translate-x-0' : '-translate-x-full'}
         md:translate-x-0
       `}
     >
@@ -104,7 +104,7 @@ export function ChatSidebar() {
       <div className="p-4 border-b border-gray-200 flex items-center gap-2">
         {/* Close button for mobile */}
         <button
-          onClick={() => setIsOpen(false)}
+          onClick={() => setOpen(false)}
           className="md:hidden p-2 -ml-2 text-gray-500 hover:text-gray-700"
           aria-label="Close sidebar"
         >

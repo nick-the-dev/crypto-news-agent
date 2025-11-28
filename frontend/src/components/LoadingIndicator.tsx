@@ -9,7 +9,7 @@ export function LoadingIndicator({ status }: Props) {
   return (
     <div className="flex flex-col items-center justify-center py-12">
       <div className="relative mb-4">
-        <Spinner size="lg" className="text-primary" />
+        <Spinner className="size-8 text-primary" />
         <span className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-2xl">
           🤖
         </span>
