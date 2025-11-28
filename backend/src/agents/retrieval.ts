@@ -87,20 +87,34 @@ export async function createRetrievalAgent(
         return fallbackOutput;
       }
 
+      // CRITICAL: If confidence is low/none, return immediately WITHOUT calling LLM
+      // This prevents hallucinations when sources are irrelevant
+      const confidenceLevel = searchResults.confidence?.level || 'medium';
+      if (confidenceLevel === 'low' || confidenceLevel === 'none') {
+        debugLogger.warn('AGENT_RETRIEVAL', 'Low confidence - returning without LLM to prevent hallucination', {
+          confidenceLevel,
+          confidenceScore: searchResults.confidence?.score,
+          articlesCount: searchResults.articles.length,
+        });
+        const lowConfidenceOutput: RetrievalOutput = {
+          summary: `I couldn't find relevant information about this topic in recent crypto news. The search returned ${searchResults.articles.length} articles, but none were directly relevant to your question.`,
+          sources: [],
+          citationCount: 0,
+        };
+        debugLogger.stepFinish(stepId, lowConfidenceOutput);
+        return lowConfidenceOutput;
+      }
+
       // Step 3: Generate summary with structured output
       // CRITICAL: Use RunnableSequence for proper LangFuse sessionId tracking
       // Direct llm.invoke() does NOT trigger handleChainStart, causing orphaned traces with NULL sessionId
       const summaryLLM = llm.withStructuredOutput<RetrievalOutput>(RetrievalOutputSchema);
 
-      // Include confidence caveat in prompt if present
-      const confidenceCaveat = searchResults.confidence?.caveat
-        ? `\n\nIMPORTANT: ${searchResults.confidence.caveat} Start your response acknowledging this.`
-        : '';
-
+      // At this point, confidence is medium or high (low/none returned early above)
       const sourcesText = searchResults.articles.map((a: any) => `[Source ${a.sourceNumber}] ${a.title} (${a.publishedAt}): ${a.quote}`).join('\n\n');
 
       const summaryPromptTemplate = ChatPromptTemplate.fromTemplate(
-        `Answer "{question}" in 2-3 sentences using only these sources. Cite every fact with [Source N].{confidenceCaveat}
+        `Answer "{question}" in 2-3 sentences using only these sources. Cite every fact with [Source N].
 
 {sourcesText}`
       );
@@ -113,7 +127,6 @@ export async function createRetrievalAgent(
       const summaryResponse = await summaryChain.invoke(
         {
           question,
-          confidenceCaveat,
           sourcesText,
         },
         {

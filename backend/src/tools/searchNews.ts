@@ -70,7 +70,7 @@ export function createSearchNewsTool(
         const hybridResults = await hybridSearch(expandedQuery, embeddings, {
           daysBack,
           limit: limit * 3, // Get more candidates for reranking
-          vectorThreshold: 0.3,
+          vectorThreshold: 0.4,
         });
         debugLogger.info('SEARCH_NEWS', `Found ${hybridResults.length} hybrid candidates`);
 
