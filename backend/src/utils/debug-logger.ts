@@ -6,10 +6,60 @@
  *   Each operation should log START and FINISH phases to track execution flow
  */
 
+import chalk from 'chalk';
+
 interface StepTimer {
   category: string;
   description: string;
   startTime: number;
+}
+
+// Category color mapping for visual distinction
+const categoryColors: Record<string, chalk.Chalk> = {
+  // Request/Response flow
+  ASK_REQUEST: chalk.bgCyan.black.bold,
+  ASK: chalk.bgCyan.black.bold,
+  RESPONSE: chalk.bgGreen.black.bold,
+  STREAM: chalk.bgBlue.white.bold,
+
+  // Agents
+  SUPERVISOR: chalk.bgMagenta.white.bold,
+  RETRIEVAL: chalk.bgBlue.white.bold,
+  VALIDATION: chalk.bgYellow.black.bold,
+  ANALYSIS: chalk.bgCyan.black.bold,
+  AGENT: chalk.bgMagenta.white.bold,
+
+  // Search & RAG
+  SEARCH: chalk.bgBlue.white.bold,
+  RERANK: chalk.bgCyan.black.bold,
+  QUERY: chalk.bgBlue.white.bold,
+  HYBRID_SEARCH: chalk.bgBlue.white.bold,
+
+  // Storage & Data
+  CONV_STORE: chalk.bgGreen.black.bold,
+  DB: chalk.bgGreen.black.bold,
+  CACHE: chalk.bgYellow.black.bold,
+
+  // Ingestion
+  INGESTION: chalk.bgMagenta.white.bold,
+  RSS: chalk.bgCyan.black.bold,
+  EMBED: chalk.bgBlue.white.bold,
+
+  // LLM & AI
+  LLM: chalk.bgRed.white.bold,
+  OPENAI: chalk.bgRed.white.bold,
+  LANGFUSE: chalk.bgMagenta.white.bold,
+
+  // System
+  SYSTEM: chalk.bgWhite.black.bold,
+  CONFIG: chalk.bgWhite.black.bold,
+  ERROR: chalk.bgRed.white.bold,
+};
+
+// Get color for a category (with fallback)
+function getCategoryLabel(category: string): string {
+  const colorFn = categoryColors[category] || chalk.bgGray.white.bold;
+  return colorFn(` ${category} `);
 }
 
 class DebugLogger {
@@ -47,10 +97,10 @@ class DebugLogger {
     });
 
     const metaStr = metadata && Object.keys(metadata).length > 0
-      ? ` | ${JSON.stringify(metadata)}`
+      ? chalk.dim(` │ ${JSON.stringify(metadata)}`)
       : '';
 
-    console.log(`▶ [${category}] ${description}${metaStr}`);
+    console.log(`${chalk.cyan('▶')} ${getCategoryLabel(category)} ${chalk.white(description)}${metaStr}`);
 
     return stepId;
   }
@@ -65,16 +115,17 @@ class DebugLogger {
 
     const step = this.activeSteps.get(stepId);
     if (!step) {
-      console.warn(`⚠ Unknown step: ${stepId}`);
+      console.warn(chalk.yellow(`⚠ Unknown step: ${stepId}`));
       return;
     }
 
     const duration = Date.now() - step.startTime;
     const resultStr = result && Object.keys(result).length > 0
-      ? ` | ${JSON.stringify(result)}`
+      ? chalk.dim(` │ ${JSON.stringify(result)}`)
       : '';
 
-    console.log(`✓ [${step.category}] ${step.description} (${duration}ms)${resultStr}`);
+    const durationColor = duration > 1000 ? chalk.yellow : duration > 500 ? chalk.cyan : chalk.green;
+    console.log(`${chalk.green('✓')} ${getCategoryLabel(step.category)} ${chalk.white(step.description)} ${durationColor(`(${duration}ms)`)}${resultStr}`);
 
     this.activeSteps.delete(stepId);
   }
@@ -100,13 +151,13 @@ class DebugLogger {
       }
     }
 
-    const durationStr = duration > 0 ? ` (${duration}ms)` : '';
+    const durationStr = duration > 0 ? chalk.dim(` (${duration}ms)`) : '';
     const errorMsg = error instanceof Error ? error.message : String(error);
 
-    console.log(`✗ [${step?.category || category}] ${description}${durationStr} | ${errorMsg}`);
+    console.log(`${chalk.red('✗')} ${getCategoryLabel(step?.category || category)} ${chalk.white(description)}${durationStr} ${chalk.red('│')} ${chalk.red(errorMsg)}`);
 
     if (error instanceof Error && error.stack && this.isDebugMode) {
-      console.log(`  Stack: ${error.stack.split('\n')[1]?.trim() || error.stack}`);
+      console.log(chalk.dim(`  └─ ${error.stack.split('\n')[1]?.trim() || error.stack}`));
     }
   }
 
@@ -120,10 +171,10 @@ class DebugLogger {
     if (!this.isDebugMode) return;
 
     const dataStr = data && Object.keys(data).length > 0
-      ? ` | ${JSON.stringify(data)}`
+      ? chalk.dim(` │ ${JSON.stringify(data)}`)
       : '';
 
-    console.log(`ℹ [${category}] ${message}${dataStr}`);
+    console.log(`${chalk.blue('ℹ')} ${getCategoryLabel(category)} ${chalk.white(message)}${dataStr}`);
   }
 
   /**
@@ -136,10 +187,10 @@ class DebugLogger {
     if (!this.isDebugMode) return;
 
     const dataStr = data && Object.keys(data).length > 0
-      ? ` | ${JSON.stringify(data)}`
+      ? chalk.dim(` │ ${JSON.stringify(data)}`)
       : '';
 
-    console.log(`⚠ [${category}] ${message}${dataStr}`);
+    console.log(`${chalk.yellow('⚠')} ${getCategoryLabel(category)} ${chalk.yellow(message)}${dataStr}`);
   }
 
   /**
@@ -165,13 +216,13 @@ class DebugLogger {
     const activeSteps = this.getActiveSteps();
 
     if (activeSteps.length === 0) {
-      console.log('📋 No active steps');
+      console.log(chalk.dim('📋 No active steps'));
       return;
     }
 
-    console.log(`📋 Active steps (${activeSteps.length}):`);
+    console.log(chalk.magenta(`📋 Active steps (${activeSteps.length}):`));
     activeSteps.forEach(step => {
-      console.log(`  ↳ [${step.category}] ${step.description} (${step.duration}ms)`);
+      console.log(chalk.dim(`  └─ `) + getCategoryLabel(step.category) + chalk.white(` ${step.description}`) + chalk.cyan(` (${step.duration}ms)`));
     });
   }
 }

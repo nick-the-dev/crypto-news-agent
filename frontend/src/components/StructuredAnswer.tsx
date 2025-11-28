@@ -144,7 +144,7 @@ export function StructuredAnswer({ answer, streamingTldr, streamingDetails }: Pr
           // Handle text nodes to process tags and citations
           p: ({ children }: ComponentPropsWithoutRef<'p'>) => {
             const processedChildren = processChildren(children);
-            return <p className="mb-3">{processedChildren}</p>;
+            return <p className="mb-2">{processedChildren}</p>;
           },
           strong: ({ children }: ComponentPropsWithoutRef<'strong'>) => (
             <strong className="font-bold text-foreground">{children}</strong>
@@ -153,10 +153,10 @@ export function StructuredAnswer({ answer, streamingTldr, streamingDetails }: Pr
             <em className="italic">{children}</em>
           ),
           ul: ({ children }: ComponentPropsWithoutRef<'ul'>) => (
-            <ul className="list-disc ml-6 my-3 space-y-1">{children}</ul>
+            <ul className="list-disc ml-6 my-2 space-y-1">{children}</ul>
           ),
           ol: ({ children }: ComponentPropsWithoutRef<'ol'>) => (
-            <ol className="list-decimal ml-6 my-3 space-y-1">{children}</ol>
+            <ol className="list-decimal ml-6 my-2 space-y-1">{children}</ol>
           ),
           li: ({ children }: ComponentPropsWithoutRef<'li'>) => {
             const processedChildren = processChildren(children);
@@ -170,6 +170,9 @@ export function StructuredAnswer({ answer, streamingTldr, streamingDetails }: Pr
           ),
           h3: ({ children }: ComponentPropsWithoutRef<'h3'>) => (
             <h5 className="text-base font-bold text-foreground mt-4 mb-2">{children}</h5>
+          ),
+          hr: () => (
+            <hr className="my-3 border-border" />
           ),
         }}
       >
@@ -185,12 +188,12 @@ export function StructuredAnswer({ answer, streamingTldr, streamingDetails }: Pr
           <div className="text-muted-foreground leading-relaxed text-sm sm:text-base">
             {/* TL;DR section - only show when there are sources (actual news retrieval) */}
             {answer.sources.length > 0 && (
-              <div className="mb-3 sm:mb-4">
+              <div className="mb-2 sm:mb-3">
                 <div className="flex items-center justify-between gap-2 mb-1">
                   <h4 className="text-xs sm:text-sm font-semibold text-muted-foreground uppercase tracking-wide">TL;DR</h4>
                   <ConfidenceBadge score={answer.confidence} />
                 </div>
-                <div className="text-base sm:text-lg font-semibold text-foreground mb-2">
+                <div className="text-base sm:text-lg font-semibold text-foreground">
                   <ReactMarkdown
                     components={{
                       p: ({ children }: ComponentPropsWithoutRef<'p'>) => <span>{children}</span>,
@@ -208,7 +211,7 @@ export function StructuredAnswer({ answer, streamingTldr, streamingDetails }: Pr
 
             {/* Details section - always show for news, or show as main content when no sources */}
             {(streamingDetails || answer.details.content) && (
-              <div className={answer.sources.length > 0 ? 'text-muted-foreground mb-4 sm:mb-6' : 'text-foreground [&>p:last-child]:mb-0'}>
+              <div className={answer.sources.length > 0 ? 'text-muted-foreground [&>p:last-child]:mb-0' : 'text-foreground [&>p:last-child]:mb-0'}>
                 {streamingDetails ? (
                   <>
                     {renderMarkdownContent(streamingDetails)}
@@ -222,7 +225,7 @@ export function StructuredAnswer({ answer, streamingTldr, streamingDetails }: Pr
 
             {/* Sources as compact inline badges with tooltips */}
             {referencedSources.length > 0 && (
-              <div className="pt-3 sm:pt-4 border-t border-border">
+              <div className="pt-2 sm:pt-3 mt-3 border-t border-border">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-xs text-muted-foreground flex items-center gap-1">
                     <Newspaper className="h-3 w-3" />
