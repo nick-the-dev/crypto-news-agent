@@ -2,6 +2,12 @@ import { StructuredAnswer as StructuredAnswerType } from '@/types';
 import { ConfidenceBadge } from './ConfidenceBadge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import ReactMarkdown from 'react-markdown';
 import { ReactNode, ComponentPropsWithoutRef, useId } from 'react';
 import { Newspaper, TrendingUp, TrendingDown, ExternalLink } from 'lucide-react';
@@ -214,14 +220,14 @@ export function StructuredAnswer({ answer, streamingTldr, streamingDetails }: Pr
               </div>
             )}
 
-            {/* Sources as compact tiles - only show sources referenced in the response */}
+            {/* Sources as compact inline badges with tooltips */}
             {referencedSources.length > 0 && (
               <div className="pt-3 sm:pt-4 border-t border-border">
-                <h3 className="text-xs sm:text-sm font-semibold text-muted-foreground mb-2 sm:mb-3 flex items-center gap-1.5">
-                  <Newspaper className="h-4 w-4" />
-                  Sources
-                </h3>
-                <div className="flex flex-wrap gap-1.5 sm:gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs text-muted-foreground flex items-center gap-1">
+                    <Newspaper className="h-3 w-3" />
+                    Sources:
+                  </span>
                   {referencedSources.map((source) => {
                     const publishedDate = new Date(source.publishedAt);
                     const hoursAgo = Math.round((Date.now() - publishedDate.getTime()) / (1000 * 60 * 60));
@@ -230,27 +236,27 @@ export function StructuredAnswer({ answer, streamingTldr, streamingDetails }: Pr
                       : `${Math.round(hoursAgo / 24)}d ago`;
 
                     return (
-                      <a
-                        key={source.number}
-                        id={`${instanceId}-source-${source.number}`}
-                        href={source.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="group inline-flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2 py-1 sm:py-1.5 bg-muted hover:bg-primary/10 border border-border hover:border-primary/50 rounded-lg transition-all max-w-full"
-                      >
-                        <Badge variant="default" className="shrink-0 h-4 w-4 rounded-full p-0 flex items-center justify-center text-[10px] font-bold">
-                          {source.number}
-                        </Badge>
-                        <div className="flex flex-col items-start min-w-0">
-                          <span className="font-medium text-foreground group-hover:text-primary text-[10px] sm:text-xs truncate max-w-[150px] sm:max-w-none sm:whitespace-nowrap">
-                            {source.title}
-                          </span>
-                          <span className="text-[9px] sm:text-[10px] text-muted-foreground whitespace-nowrap">
-                            {source.source} • {timeAgo}
-                          </span>
-                        </div>
-                        <ExternalLink className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity text-primary shrink-0" />
-                      </a>
+                      <TooltipProvider key={source.number} delayDuration={300}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <a
+                              id={`${instanceId}-source-${source.number}`}
+                              href={source.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 px-2 py-0.5 bg-muted hover:bg-primary/10 border border-border hover:border-primary/50 rounded-full transition-all text-xs"
+                            >
+                              <span className="font-semibold text-foreground">[{source.number}]</span>
+                              <span className="text-muted-foreground truncate max-w-[80px] sm:max-w-[120px]">{source.source}</span>
+                              <ExternalLink className="h-2.5 w-2.5 text-muted-foreground" />
+                            </a>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="max-w-[280px] bg-popover text-popover-foreground border shadow-md p-2">
+                            <p className="font-medium text-sm leading-tight mb-1">{source.title}</p>
+                            <p className="text-xs text-muted-foreground">{source.source} • {timeAgo}</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
                     );
                   })}
                 </div>
