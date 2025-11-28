@@ -317,46 +317,32 @@ Content: {content}`;
 
 const REDUCE_PROMPT = `Based on analysis of {count} crypto news articles from the last {days} days:
 
-Sentiment Distribution:
-- Bullish: {bullishPercent}%
-- Bearish: {bearishPercent}%
-- Neutral: {neutralPercent}%
+Sentiment: {bullishPercent}% bullish, {bearishPercent}% bearish, {neutralPercent}% neutral
 
-=== CITABLE SOURCES (use [Source N] format to cite these) ===
+=== CITABLE SOURCES (use [Source N] format) ===
 {sourcesForCitation}
 
-=== BACKGROUND CONTEXT (for your reference only, DO NOT copy this format) ===
+=== CONTEXT ===
 {insights}
 
 User Question: {question}
 
-CRITICAL CITATION RULES:
-1. ONLY use [Source N] format for citations (e.g., [Source 1], [Source 3])
-2. The N must match a source number from the CITABLE SOURCES section above
-3. DO NOT use any other citation format - no [BULLISH], no article titles in brackets
-4. Every factual claim needs at least one [Source N] citation
-5. Multiple sources can support one claim: [Source 1][Source 3]
+CITATION RULES:
+- Use [Source N] format only (e.g., [Source 1], [Source 3])
+- Every claim needs a citation
+- NO other formats like [BULLISH] or article titles in brackets
 
-WRONG citation formats (NEVER use these):
-- [BULLISH] or [BEARISH] or [NEUTRAL]
-- [Article title here]
-- [Top Article Insights - ...]
-- Any text in brackets that is not [Source N]
+RESPONSE FORMAT (be concise - aim for 150-200 words max):
 
-CONTENT INSTRUCTIONS:
-1. Carefully examine the article TITLES and entities in the context above
-2. If the user asked about a specific cryptocurrency, PRIORITIZE information about that asset
-3. Look for mentions in both titles AND key points - titles alone are sufficient evidence
-4. NEVER claim an asset wasn't mentioned if it appears in article titles or entities
+**Summary**: 2-3 sentences directly answering the question with key facts [Source N].
 
-Provide a comprehensive analysis including:
-1. Direct response to the user's question with specific information [Source N]
-2. Overall market sentiment assessment for queried assets [Source N]
-3. Key trends identified across relevant articles [Source N]
-4. Notable entities and events related to the query [Source N]
-5. A balanced outlook with appropriate caveats
+**What's happening**: 3-5 bullet points of the most important news [Source N].
 
-Format your response as a well-structured analysis that directly addresses the user's question.`;
+**Why it matters**: 1-2 sentences on the broader implications.
+
+**What to watch**: 1-2 sentences on upcoming catalysts or risks.
+
+Keep it short and factual. No fluff or repetition.`;
 
 interface ArticleWithInsights {
   id: string;
