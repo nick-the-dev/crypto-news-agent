@@ -202,7 +202,7 @@ export function StructuredAnswer({ answer, streamingTldr, streamingDetails }: Pr
 
             {/* Details section - always show for news, or show as main content when no sources */}
             {(streamingDetails || answer.details.content) && (
-              <div className={answer.sources.length > 0 ? 'text-muted-foreground mb-4 sm:mb-6' : 'text-foreground'}>
+              <div className={answer.sources.length > 0 ? 'text-muted-foreground mb-4 sm:mb-6' : 'text-foreground [&>p:last-child]:mb-0'}>
                 {streamingDetails ? (
                   <>
                     {renderMarkdownContent(streamingDetails)}
