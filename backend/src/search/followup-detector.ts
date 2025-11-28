@@ -43,6 +43,19 @@ const REFINEMENT_PATTERNS = [
   /^(filter|limit|exclude|include)\s+/i,
 ];
 
+// Patterns that indicate AMBIGUOUS references - require LLM to resolve
+// These should NOT match fast detection and should go to LLM
+const AMBIGUOUS_REFERENCE_PATTERNS = [
+  /\b(it|that|this|those|these)\b/i,     // Pronouns referring to earlier topic
+  /\b(analy[sz]e|summarize|explain)\s+(it|that|this)/i,  // "analyze it", "summarize that"
+  /\b(my|the)\s+(question|query|request|initial)/i,   // "my question", "initial request"
+  /\bi\s+(asked|meant|said|want)\b/i,   // "I asked", "I meant", "I said about"
+  /\bagain\b/i,  // "tell me again"
+  /\bmore\s+(detail|info|about)\b/i,  // "more detail" without specifying topic
+  /\bnot\s+(the|about)\s+(general|market|crypto)/i,  // "not the general market"
+  /\bspecifically\b/i,  // "specifically" suggests clarification
+];
+
 // Patterns that indicate a NEW query (override other patterns)
 const NEW_QUERY_PATTERNS = [
   /^what('s| is) (happening|going on|the latest|new)/i,
@@ -70,6 +83,15 @@ export function detectFollowupFast(
 
   const trimmed = message.trim();
   const wordCount = trimmed.split(/\s+/).length;
+
+  // IMPORTANT: Check for ambiguous references FIRST
+  // These MUST go to LLM for proper topic resolution
+  for (const pattern of AMBIGUOUS_REFERENCE_PATTERNS) {
+    if (pattern.test(trimmed)) {
+      // Return null to force LLM detection - it needs to resolve the reference
+      return null;
+    }
+  }
 
   // Very short messages (1-3 words) are likely clarifications
   if (wordCount <= 3) {
@@ -137,7 +159,7 @@ const FollowupSchema = z.object({
   type: z.enum(['new_query', 'clarification', 'refinement']),
   confidence: z.number().min(0).max(1),
   reasoning: z.string(),
-  refinedQuery: z.string().optional(),
+  refinedQuery: z.string().nullable(),  // Changed from .optional() to .nullable() for OpenAI compatibility
 });
 
 const SYSTEM_PROMPT = `You analyze conversations to determine if the latest message is a follow-up to previous messages.
@@ -150,11 +172,23 @@ Classify messages into one of three types:
 2. "clarification" - User wants more explanation of the PREVIOUS answer. No new search needed.
    Examples: "Are you sure?", "Why?", "Can you explain that?", "What do you mean?"
 
-3. "refinement" - User wants to MODIFY the previous search with constraints. Same topic, different scope.
-   Examples: "What about just Solana?", "Focus on the last 3 days", "Only bullish news"
-   For refinements, also provide a "refinedQuery" that combines the original topic with the new constraints.
+3. "refinement" - User wants to MODIFY or REPEAT the previous search, OR refers to "it"/"that"/"my question" from earlier.
+   This includes:
+   - Adding constraints: "What about just Solana?", "Focus on the last 3 days"
+   - Requesting analysis: "analyze it", "tell me more about it", "summarize that"
+   - Referencing earlier topic: "what about my initial question", "go back to what I asked"
 
-Return JSON with: type, confidence (0-1), reasoning, and refinedQuery (if type is refinement).`;
+   CRITICAL for refinements: You MUST generate a "refinedQuery" that:
+   1. EXPLICITLY names the original topic/asset from conversation history (e.g., "Bitcoin", "Ethereum", "DeFi")
+   2. Combines it with the user's current request
+   3. NEVER uses pronouns like "it" or "that" - always use the actual topic name
+
+   Examples:
+   - History about Bitcoin + "analyze it" → refinedQuery: "Analyze Bitcoin news and market trends"
+   - History about Solana + "tell me more" → refinedQuery: "More details about Solana news"
+   - History about DeFi + "what's the sentiment" → refinedQuery: "What is the market sentiment for DeFi?"
+
+Return JSON with: type, confidence (0-1), reasoning, and refinedQuery (REQUIRED if type is refinement).`;
 
 const HUMAN_PROMPT = `CONVERSATION HISTORY:
 {history}

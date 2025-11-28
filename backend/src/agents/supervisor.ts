@@ -241,7 +241,32 @@ Provide a helpful clarification response:`],
    */
   async function intentRouterNode(state: AgentStateType): Promise<Partial<AgentStateType>> {
     // If this is a refinement, use the refined query
-    const queryToAnalyze = state.followupResult?.refinedQuery || state.question;
+    let queryToAnalyze = state.followupResult?.refinedQuery || state.question;
+
+    // SAFEGUARD: If this is a refinement but no refinedQuery was generated,
+    // try to extract the original topic from conversation history
+    if (
+      state.followupResult?.type === 'refinement' &&
+      !state.followupResult?.refinedQuery &&
+      state.conversationContext?.turns.length
+    ) {
+      // Find the first user message (usually contains the original topic)
+      const firstUserTurn = state.conversationContext.turns.find(t => t.role === 'user');
+      if (firstUserTurn) {
+        // Extract crypto keywords from the original question
+        const cryptoKeywords = firstUserTurn.content.match(/\b(bitcoin|btc|ethereum|eth|solana|sol|defi|nft|crypto|altcoin|memecoin|doge|shib|xrp|cardano|ada|polygon|matic|avalanche|avax|chainlink|link)\b/gi);
+        if (cryptoKeywords && cryptoKeywords.length > 0) {
+          // Prepend the topic to the current question
+          const topic = [...new Set(cryptoKeywords.map(k => k.toUpperCase()))].join(', ');
+          queryToAnalyze = `${state.question} about ${topic}`;
+          debugLogger.info('SUPERVISOR', 'Enriched query with topic from history', {
+            originalQuery: state.question,
+            extractedTopic: topic,
+            enrichedQuery: queryToAnalyze,
+          });
+        }
+      }
+    }
 
     debugLogger.info('SUPERVISOR', 'Detecting query intent', {
       question: state.question,
