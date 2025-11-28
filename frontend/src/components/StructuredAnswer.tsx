@@ -55,8 +55,27 @@ function processTextWithTags(text: string, onCitationClick: (num: number) => voi
   }).filter(Boolean);
 }
 
+// Extract citation numbers from text content (e.g., [1], [2], etc.)
+function extractCitationsFromText(text: string): number[] {
+  const matches = text.match(/\[(\d+)\]/g) || [];
+  return [...new Set(matches.map(m => parseInt(m.slice(1, -1), 10)))];
+}
+
 export function StructuredAnswer({ answer, streamingTldr, streamingDetails, question }: Props) {
   const instanceId = useId();
+
+  // Get sources that are actually referenced in the response
+  const referencedSources = (() => {
+    const tldrText = streamingTldr || answer.tldr || '';
+    const detailsText = streamingDetails || answer.details.content || '';
+    const citedNumbers = extractCitationsFromText(tldrText + detailsText);
+
+    if (citedNumbers.length === 0) return [];
+
+    return answer.sources
+      .filter(source => citedNumbers.includes(source.number))
+      .sort((a, b) => a.number - b.number);
+  })();
 
   const handleCitationClick = (num: number) => {
     // Use requestAnimationFrame to ensure DOM is ready
@@ -214,12 +233,12 @@ export function StructuredAnswer({ answer, streamingTldr, streamingDetails, ques
             </div>
           )}
 
-          {/* Sources as compact tiles */}
-          {answer.sources.length > 0 && (
+          {/* Sources as compact tiles - only show sources referenced in the response */}
+          {referencedSources.length > 0 && (
             <div className="pt-3 sm:pt-4 border-t border-gray-200">
               <h3 className="text-xs sm:text-sm font-semibold text-gray-600 mb-2 sm:mb-3">📰 Sources</h3>
               <div className="flex flex-wrap gap-1.5 sm:gap-2">
-                {answer.sources.map((source) => {
+                {referencedSources.map((source) => {
                   const publishedDate = new Date(source.publishedAt);
                   const hoursAgo = Math.round((Date.now() - publishedDate.getTime()) / (1000 * 60 * 60));
                   const timeAgo = hoursAgo < 24
