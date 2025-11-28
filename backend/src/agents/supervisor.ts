@@ -511,8 +511,7 @@ Provide a helpful clarification response:`],
     }
 
     // Format analysis output as final answer
-    const { summary, sentiment, trends, disclaimer } = state.analysisOutput;
-    const trendList = trends.length > 0 ? `\n\nKey trends: ${trends.join(', ')}` : '';
+    const { summary, sentiment, articlesAnalyzed } = state.analysisOutput;
     const sentimentInfo = `\n\nMarket sentiment: ${sentiment.overall} (${sentiment.bullishPercent}% bullish, ${sentiment.bearishPercent}% bearish)`;
 
     // Add evidence search info if we ran smart citation recovery
@@ -528,7 +527,10 @@ Provide a helpful clarification response:`],
       ? `\n\n📊 Citation Quality${evidenceInfo}: ${state.validationOutput.citationsVerified}/${state.validationOutput.citationsTotal} citations verified (${state.validationOutput.confidence}% confidence)`
       : '';
 
-    const finalAnswer = `${summary}${sentimentInfo}${trendList}${validationInfo}\n\n${disclaimer}`;
+    // Add articles analyzed count
+    const articlesInfo = `\n\n📰 Based on ${articlesAnalyzed} articles analyzed`;
+
+    const finalAnswer = `${summary}${sentimentInfo}${articlesInfo}${validationInfo}`;
 
     // Add the AI response to conversation history
     return {

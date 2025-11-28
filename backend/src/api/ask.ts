@@ -34,10 +34,10 @@ function setSSEHeaders(res: Response): void {
  * Convert AnalysisOutput to FinalResponse format
  */
 function analysisToFinalResponse(output: AnalysisOutput): FinalResponse {
-  const { summary, sentiment, trends, disclaimer } = output;
-  const trendList = trends.length > 0 ? `\n\nKey trends: ${trends.join(', ')}` : '';
+  const { summary, sentiment, articlesAnalyzed } = output;
   const sentimentInfo = `\n\nMarket sentiment: ${sentiment.overall} (${sentiment.bullishPercent}% bullish, ${sentiment.bearishPercent}% bearish)`;
-  const finalAnswer = `${summary}${sentimentInfo}${trendList}\n\n${disclaimer}`;
+  const articlesInfo = `\n\n📰 Based on ${articlesAnalyzed} articles analyzed`;
+  const finalAnswer = `${summary}${sentimentInfo}${articlesInfo}`;
 
   return {
     answer: finalAnswer,
